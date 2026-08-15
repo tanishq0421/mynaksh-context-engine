@@ -107,7 +107,10 @@ make test    # 102 tests: 75 unit + 27 over real HTTP
 
 ---
 
-## Behaviour, verified live
+## What it does
+
+Actual output. These questions are parametrized in `tests/test_live_api.py`,
+so the table cannot drift from the code without failing CI.
 
 | Question | Intent | Selected context | Confidence |
 |---|---|---|---|
@@ -163,7 +166,7 @@ merge arithmetic made explicit.**
 
 ---
 
-## Failure handling, verified
+## Failure handling
 
 | Scenario | Result |
 |---|---|
