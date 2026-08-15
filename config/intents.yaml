@@ -1,0 +1,208 @@
+# Classifier vocabulary and gates.
+#
+# Weight scale, applied consistently across all four intents:
+#   ~1.2  canonical noun — its presence alone should decide the intent
+#   ~0.8-1.0  strong evidence, but a second signal is welcome
+#   ~0.5-0.7  supporting evidence, meaningless on its own
+#
+# English only. Hinglish and Devanagari are a deliberate scope exclusion: a
+# half-built bilingual lexicon classifies worse than a complete monolingual one,
+# because the missing half silently routes to the general fallback instead of
+# failing visibly.
+
+thresholds:
+  min_evidence: 0.8
+  dominance: 0.65
+  negation_window: 3
+  negation_discount: 0.3
+
+# A cue discounts (never zeroes) intent evidence inside negation_window tokens.
+# "not worried about money" is still a finance question.
+negation_cues:
+  - not
+  - "no"
+  - never
+  - dont
+  - "do not"
+  - isnt
+  - "is not"
+  - nothing
+
+domain_gate:
+  personal_markers:
+    - i
+    - me
+    - my
+    - mine
+    - myself
+    - we
+    - our
+  astro_terms:
+    - kundli
+    - horoscope
+    - chart
+    - dasha
+    - rashi
+    - nakshatra
+    - panchang
+    - guidance
+    - reading
+    - forecast
+    - prediction
+    - stars
+    - planets
+    - transit
+  # In-domain signals that must never carry intent weight — see the guard in
+  # config_loader.py. `cancer` is the whole reason this list exists.
+  zodiac_terms:
+    - aries
+    - taurus
+    - gemini
+    - cancer
+    - leo
+    - virgo
+    - libra
+    - scorpio
+    - sagittarius
+    - capricorn
+    - aquarius
+    - pisces
+  # One signal is enough. Two would reject "kundli reading?" — terse but plainly
+  # in domain — and the cost of a false reject (a refusal) is worse than the cost
+  # of a false accept (a generic reading).
+  min_signals: 1
+
+time_scope:
+  patterns:
+    today:
+      - today
+      - tonight
+      - right now
+      - at the moment
+      - currently
+    this_week:
+      - this week
+      - coming week
+      - next week
+      - next 7 days
+      - in a few days
+    this_month:
+      - this month
+      - coming month
+      - next month
+      # A vague multi-month horizon is closer to a monthly transit read than to
+      # an annual dasha read, so it lands here rather than in this_year.
+      - next few months
+      - coming weeks
+    this_year:
+      - this year
+      - coming year
+      - next year
+      - rest of the year
+      - long term
+
+intents:
+  career:
+    terms:
+      - { match: career, weight: 1.2 }
+      - { match: job, weight: 1.2 }
+      - { match: promot*, weight: 1.0 }
+      - { match: appraisal, weight: 0.9 }
+      - { match: resign*, weight: 0.9 }
+      - { match: employer, weight: 0.8 }
+      - { match: workplace, weight: 0.8 }
+      - { match: boss, weight: 0.8 }
+      - { match: interview, weight: 0.8 }
+      - { match: freelance, weight: 0.7 }
+      - { match: compan*, weight: 0.6 }
+      - { match: quit, weight: 0.6 }
+      - { match: switch*, weight: 0.5 }
+      # Deliberate overlaps. `salary` leans finance, `income` leans finance
+      # harder, `business` sits almost evenly — the dominance threshold, not the
+      # lexicon, is what resolves these.
+      - { match: salary, weight: 0.5 }
+      - { match: business, weight: 0.6 }
+      - { match: stress, weight: 0.3 }
+      - { match: income, weight: 0.3 }
+    phrases:
+      # Stem-aware because the inflection is the likely form: "changing my job",
+      # "switched companies".
+      - { match: chang* my job, weight: 1.2 }
+      - { match: switch* compan*, weight: 1.2 }
+      - { match: notice period, weight: 1.0 }
+      - { match: offer letter, weight: 1.0 }
+      - { match: work life, weight: 0.7 }
+
+  relationship:
+    terms:
+      - { match: marri*, weight: 1.2 }
+      - { match: relationship, weight: 1.2 }
+      - { match: spouse, weight: 1.0 }
+      - { match: partner, weight: 0.9 }
+      - { match: husband, weight: 1.0 }
+      - { match: wife, weight: 1.0 }
+      - { match: divorce, weight: 1.0 }
+      - { match: romanc*, weight: 0.9 }
+      - { match: engagement, weight: 0.8 }
+      - { match: girlfriend, weight: 0.9 }
+      - { match: boyfriend, weight: 0.9 }
+      - { match: dating, weight: 0.8 }
+      - { match: compatib*, weight: 0.7 }
+      - { match: breakup, weight: 0.8 }
+      - { match: family, weight: 0.5 }
+    phrases:
+      - { match: love life, weight: 1.2 }
+      - { match: get* married, weight: 1.2 }
+      - { match: life partner, weight: 1.2 }
+      - { match: soul mate, weight: 0.9 }
+
+  health:
+    terms:
+      # `cancer` is absent by design and must stay absent — it is a zodiac sign
+      # far more often than a diagnosis in this corpus ("my Cancer moon"), and
+      # including it classified those as health at full confidence.
+      - { match: health, weight: 1.2 }
+      - { match: illness, weight: 1.1 }
+      - { match: disease, weight: 1.0 }
+      - { match: fitness, weight: 0.9 }
+      - { match: recover*, weight: 0.8 }
+      - { match: surgery, weight: 0.9 }
+      - { match: doctor, weight: 0.8 }
+      - { match: medic*, weight: 0.9 }
+      - { match: diet, weight: 0.7 }
+      - { match: sleep, weight: 0.6 }
+      - { match: anxiety, weight: 0.7 }
+      - { match: fatigue, weight: 0.7 }
+      - { match: pain, weight: 0.6 }
+      - { match: immunity, weight: 0.7 }
+      - { match: stress, weight: 0.6 }
+    phrases:
+      - { match: well being, weight: 1.0 }
+      - { match: mental health, weight: 1.2 }
+      - { match: feel* unwell, weight: 1.0 }
+      - { match: blood pressure, weight: 0.9 }
+
+  finance:
+    terms:
+      # Bare `capital`, `interest`, `bond` and `will` are excluded on purpose:
+      # each is a common English word ("capital of France", "not interested"),
+      # and one of them is how the domain gate got written in the first place.
+      - { match: money, weight: 1.2 }
+      - { match: wealth, weight: 1.2 }
+      - { match: income, weight: 0.9 }
+      - { match: financ*, weight: 1.1 }
+      - { match: invest*, weight: 1.0 }
+      - { match: debt, weight: 0.9 }
+      - { match: loan, weight: 0.9 }
+      - { match: savings, weight: 0.9 }
+      - { match: property, weight: 0.7 }
+      - { match: profit, weight: 0.8 }
+      - { match: expenses, weight: 0.7 }
+      - { match: budget, weight: 0.6 }
+      - { match: salary, weight: 0.8 }
+      - { match: business, weight: 0.5 }
+    phrases:
+      - { match: financial stab*, weight: 1.2 }
+      - { match: cash flow, weight: 1.0 }
+      - { match: stock market, weight: 1.0 }
+      - { match: buy* property, weight: 0.9 }

@@ -1,0 +1,125 @@
+# Which context an intent deserves, and how much of it.
+#
+# Authored in tier names rather than numbers so a domain expert can review the
+# categories ("is the 7th house primary for relationship?") without arguing
+# about decimals. The numbers live in `weights` and change in one place.
+
+weights:
+  primary: 1.0
+  secondary: 0.5
+
+# Only items whose *value* changes with the horizon appear here. Natal data —
+# houses, lagna, moon_sign, birth_details — is fixed at birth, so a yearly
+# question does not make the 10th house any more or less relevant than a daily
+# one, and giving it a modifier would be noise dressed up as tuning.
+time_scope_modifiers:
+  panchang_today:
+    # Today's tithi/nakshatra is the single most useful fact for "today" and
+    # actively misleading for "this year" — by then it describes a day that has
+    # long passed.
+    today: 0.5
+    this_week: 0.1
+    this_month: -0.3
+    this_year: -0.4
+  dasha_current:
+    # Mirror image: a mahadasha runs for years, so it explains an annual arc and
+    # says almost nothing about Tuesday.
+    today: -0.2
+    this_week: -0.1
+    this_month: 0.2
+    this_year: 0.4
+  horoscope_career:
+    today: 0.3
+    this_week: 0.1
+    this_month: -0.1
+    this_year: -0.3
+  horoscope_finance:
+    today: 0.3
+    this_week: 0.1
+    this_month: -0.1
+    this_year: -0.3
+  horoscope_health:
+    today: 0.3
+    this_week: 0.1
+    this_month: -0.1
+    this_year: -0.3
+  horoscope_relationship:
+    today: 0.3
+    this_week: 0.1
+    this_month: -0.1
+    this_year: -0.3
+
+# A modifier may nudge ranking within a tier but must never let a secondary item
+# outrank a primary one — that is the tier system voting against itself.
+modifier_cap: 0.5
+
+rules:
+  career:
+    primary: [house_10, horoscope_career]
+    secondary: [dasha_current, panchang_today]
+    # Relationship horoscope is not merely low-value here, it is off-topic: left
+    # in the prompt the model weaves romance into an appraisal question.
+    exclude: [horoscope_relationship]
+
+  relationship:
+    primary: [house_7, horoscope_relationship]
+    # Moon sign carries emotional temperament, which is what a relationship
+    # reading is actually about.
+    secondary: [moon_sign, dasha_current]
+    exclude: [horoscope_career]
+
+  health:
+    primary: [house_6, horoscope_health]
+    secondary: [moon_sign, panchang_today]
+    exclude: [horoscope_finance]
+
+  finance:
+    # No dedicated wealth house is registered, so the finance horoscope carries
+    # the intent alone and the 10th house backs it up as the earnings proxy.
+    primary: [horoscope_finance]
+    secondary: [house_10, dasha_current]
+    exclude: [horoscope_relationship]
+
+  general:
+    # "General" means we have no evidence of what the user wants, so nothing is
+    # promoted and nothing is ruled out: every available item competes on equal
+    # footing and the token budget does the selecting.
+    primary: []
+    secondary:
+      - lagna
+      - moon_sign
+      - dasha_current
+      - house_6
+      - house_7
+      - house_10
+      - horoscope_career
+      - horoscope_finance
+      - horoscope_health
+      - horoscope_relationship
+      - panchang_today
+      - birth_details
+    exclude: []
+
+length:
+  subscription:
+    premium: 250
+    free: 120
+  intent:
+    career: 250
+    relationship: 220
+    health: 200
+    finance: 220
+    # Without a known intent there is less to say; a long general reading is
+    # padding, and padding is where the model starts inventing.
+    general: 150
+  words_per_context_item: 45
+  floor: 60
+
+tone:
+  default: neutral
+  allowed_by_intent:
+    # Health is the one intent where an upbeat register is a liability: a weak
+    # 6th house delivered as motivation reads as a promise about the user's body.
+    health: [calm, supportive, neutral]
+  fallback_by_intent:
+    health: supportive

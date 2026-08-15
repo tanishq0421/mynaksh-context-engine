@@ -1,0 +1,48 @@
+# Per-upstream resilience policy.
+#
+# TTLs are derived from how fast the underlying data actually changes, not from
+# how convenient a number is. A single global TTL would be simultaneously too
+# aggressive for the natal chart and too lax for the daily horoscope.
+
+services:
+  user:
+    # The only required service: without a profile there is no birth data, so
+    # there is nothing to personalize and failing fast beats a generic reading
+    # dressed up as a personal one.
+    timeout_seconds: 1.5
+    retries: 2
+    backoff_seconds: 0.1
+    ttl_seconds: 120
+    criticality: required
+    serve_stale_on_error: true
+
+  kundli:
+    # Natal chart is computed once from immutable birth data. An hour is
+    # conservative; the real expiry is "never".
+    timeout_seconds: 2.0
+    retries: 2
+    backoff_seconds: 0.1
+    ttl_seconds: 3600
+    criticality: degradable
+    serve_stale_on_error: true
+
+  horoscope:
+    # Per-user per-day. 15 minutes keeps a same-session re-ask cheap without
+    # carrying yesterday's forecast past midnight for long.
+    timeout_seconds: 2.0
+    retries: 2
+    backoff_seconds: 0.1
+    ttl_seconds: 900
+    criticality: degradable
+    serve_stale_on_error: true
+
+  panchang:
+    # Global and date-keyed, so one entry serves every user — the longest TTL
+    # here is also the cheapest, and a single retry suffices because a miss only
+    # costs one contextual detail.
+    timeout_seconds: 1.5
+    retries: 1
+    backoff_seconds: 0.1
+    ttl_seconds: 1800
+    criticality: degradable
+    serve_stale_on_error: true
