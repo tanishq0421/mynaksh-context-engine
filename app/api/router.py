@@ -46,6 +46,13 @@ OUT_OF_DOMAIN_ANSWER = (
     "relationships, health, finances, or the day ahead and I can help."
 )
 
+# Every contributing upstream failed. Answering anyway would mean generating
+# astrology from nothing, which is worse than saying so.
+NO_CONTEXT_ANSWER = (
+    "I could not reach enough of your chart data to answer that reliably right "
+    "now. Please try again shortly."
+)
+
 
 async def _run_pipeline(
     request: Request, payload: PersonalizeRequest
@@ -97,6 +104,20 @@ async def personalize(request: Request, payload: PersonalizeRequest) -> Personal
     if not classification.in_domain:
         return PersonalizeResponse(
             answer=OUT_OF_DOMAIN_ANSWER, confidence=Confidence.LOW, sources_used=[]
+        )
+
+    if not resolved.selected:
+        # Every upstream that could have contributed failed. The system prompt
+        # permits the model to decline, but relying on that means the honesty of
+        # the answer depends on which provider is configured — and a model given
+        # no facts and asked for 180 words will supply them. Refusing here makes
+        # it a property of the system instead of a hope about the model.
+        logger.warning(
+            "no context resolved; declining without an LLM call",
+            extra={"event": "empty_context", "user_id": payload.user_id},
+        )
+        return PersonalizeResponse(
+            answer=NO_CONTEXT_ANSWER, confidence=Confidence.LOW, sources_used=[]
         )
 
     system, user = build_prompt(plan, resolved, payload.question, profile.get("name", "there"))

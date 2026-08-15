@@ -86,12 +86,18 @@ def _dict_field(*path: str, requires: tuple[str, ...] = ()) -> Callable[[Any], A
 # --------------------------------------------------------------------------
 
 
+# Renderers emit the VALUE only. The label is `display_name`, and the prompt
+# builder prepends it — duplicating it here cost a doubled label on every
+# selected item ("10th House: 10th House: lord Moon"), which wasted prompt
+# tokens on every request and read as a formatting bug to the model.
+
+
 def _render_lagna(value: Any) -> str:
-    return f"Lagna (ascendant): {value}"
+    return f"{value} (ascendant)"
 
 
 def _render_moon_sign(value: Any) -> str:
-    return f"Moon sign: {value}"
+    return str(value)
 
 
 def _render_dasha(value: Any) -> str:
@@ -102,7 +108,7 @@ def _render_dasha(value: Any) -> str:
         parts.append(f"{maha} mahadasha")
     if antar:
         parts.append(f"{antar} antardasha")
-    return "Current Dasha: " + ", ".join(parts)
+    return ", ".join(parts)
 
 
 def _house_renderer(number: str) -> Callable[[Any], str]:
@@ -114,14 +120,14 @@ def _house_renderer(number: str) -> Callable[[Any], str]:
             parts.append(f"lord {lord}")
         if strength:
             parts.append(f"strength {strength}")
-        return f"{number}th House: " + ", ".join(parts)
+        return ", ".join(parts)
 
     return render
 
 
 def _horoscope_renderer(label: str) -> Callable[[Any], str]:
     def render(value: Any) -> str:
-        return f"{label} horoscope: {value}"
+        return str(value)
 
     return render
 
@@ -131,7 +137,7 @@ def _render_panchang(value: Any) -> str:
     # phrase is familiar to anyone who has seen one.
     labels = (("tithi", "tithi"), ("nakshatra", "nakshatra"), ("yoga", "yoga"), ("karana", "karana"))
     parts = [f"{value[f]} {label}" for f, label in labels if _non_empty_str(value.get(f))]
-    return "Today's Panchang: " + ", ".join(parts)
+    return ", ".join(parts)
 
 
 def _render_birth_details(value: Any) -> str:
