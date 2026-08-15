@@ -11,14 +11,13 @@ MOCKS  ?= http://localhost:8001
 USER_ID ?= user_101
 Q      ?= Should I consider changing my job in the next few months?
 
-# Fault demo knobs. CLEAR_CACHE distinguishes the two failure stories:
-#   true  -> cold cache: the answer degrades (fewer sources, lower confidence)
-#   false -> warm cache: stale-on-error serves last-known-good
-# Sequencing lives here rather than in either service, so the mock never has to
-# reach into the engine's API to clear its cache.
+# Fault demo knobs. The two failure stories differ by ORDERING, not a flag:
+#   demo-degraded -> clear cache, then fault  => the answer degrades
+#   demo-stale    -> fault after warming      => stale-on-error still answers
+# That sequencing lives here rather than in either service, so the mock never
+# has to reach into the engine's API to clear its cache.
 SERVICE     ?= kundli
 FAULT       ?= error
-CLEAR_CACHE ?= true
 
 .PHONY: help up down logs test ask debug demo-healthy demo-degraded demo-stale demo-reset
 

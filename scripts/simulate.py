@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -24,7 +25,9 @@ import httpx
 
 ENGINE = "http://localhost:8000"
 MOCKS = "http://localhost:8001"
-LOG = Path("/tmp/engine.log")
+# Override with ENGINE_LOG when the engine writes elsewhere. Without a log file
+# the report still builds; the per-request log blocks just say so.
+LOG = Path(os.environ.get("ENGINE_LOG", "/tmp/engine.log"))
 
 USERS = {
     "user_101": "premium, tone=motivational, full chart",

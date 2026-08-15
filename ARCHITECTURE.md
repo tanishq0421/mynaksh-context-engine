@@ -36,14 +36,14 @@ flowchart LR
     end
 
     MW["1 middleware<br/>request-id · JSON logs · latency"]
-    CLS["2 classifier<br/>intent · weights Σ=1 · time scope"]
+    CLS["2 classifier<br/>time scope → gate → phrases<br/>→ terms → negation"]
     AGG["3 aggregator<br/>concurrent fan-out"]
     CACHE[("cache<br/>per-service TTL<br/>stale-on-error · single-flight")]
     PLAN["4a planner — pure<br/>Σ intent_w × tier_w + time modifier<br/>tone · language · maxWords"]
     SEL["4b selector<br/>spend token budget · backfill"]
     PB["5 prompt builder<br/>selected items only"]
     LLM["6 LLM provider<br/>anthropic · openai · mock"]
-    CONF["7 confidence<br/>coverage × intent certainty"]
+    CONF["7 confidence<br/>coverage, capped by intent certainty"]
     RESP(["answer · confidence · sourcesUsed"])
     DBG(["/debug/personalization<br/>stops here — no LLM call"])
 
@@ -138,7 +138,7 @@ system at a readable width — the Mermaid version above shows them together.
  ║                                  ▼                                         ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
  ║  │ 2  INTENT CLASSIFIER                                                 │  ║
- ║  │    domain gate ▸ time-scope ▸ phrases ▸ terms ▸ negation discount    │  ║
+ ║  │    time-scope ▸ domain gate ▸ phrases ▸ terms ▸ negation discount    │  ║
  ║  │    evidence vector {intent: float}   ▸   decision policy             │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║          intent · weights (Σ = 1) · time scope · decision reason           ║
@@ -224,7 +224,7 @@ system at a readable width — the Mermaid version above shows them together.
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║                                  ▼                                         ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 7  CONFIDENCE SCORER   primary-source coverage × intent certainty    │  ║
+ ║  │ 7  CONFIDENCE SCORER   primary-source coverage, capped by intent certainty    │  ║
  ║  │                        deterministic — never the model's own opinion │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║                                  ▼                                         ║
@@ -287,22 +287,22 @@ than having no debug endpoint.
 3. **Fan out.** `asyncio.gather` over all four clients, `return_exceptions=True`.
    Each client's `fetch` is total: it returns a `FetchResult`, it does not raise.
    Result is a `ContextBundle` of data + a failure map + a stale set.
-4. **Plan (phase 1).** Pure. Score every registry item from intent weights, tier
+4a. **Plan (phase 1).** Pure. Score every registry item from intent weights, tier
    weights and the time-scope modifier; hard-zero anything excluded by an active
    intent; sort descending with an alphabetical tie-break. Also decide language,
    tone (preference capped per intent) and `maxWords`.
-5. **Resolve (phase 2).** Walk the ranking. Skip excluded items, skip
+4b. **Resolve (phase 2).** Walk the ranking. Skip excluded items, skip
    non-positive scores, mark items whose service failed or whose extractor
    returned `None` as unavailable, admit the rest while the token budget lasts.
    A too-expensive item is recorded as `droppedForBudget` and the walk
    *continues*, so a cheaper lower-ranked item can still fit.
-6. **Debug stops here** and returns the full trace: scores with reasons, matched
+→ **Debug stops here** and returns the full trace: scores with reasons, matched
    terms, the two classifier numbers, and the three absence buckets.
-7. **Build the prompt.** System prompt carries numbered grounding rules,
+5. **Build the prompt.** System prompt carries numbered grounding rules,
    language, tone, horizon and the word cap. User prompt carries the name, the
    question and the context block, each item rendered as a short natural phrase.
    Prompt size is logged.
-8. **Generate**, then **score confidence** from primary-source coverage capped
+6-8. **Generate**, then **score confidence** from primary-source coverage capped
    by the classifier's decision reason, and derive `sourcesUsed` from what was
    actually selected.
 
@@ -373,9 +373,12 @@ question is money burnt on a decision already made.
 
 ## 6. Extension seams
 
-Four abstract base classes. Each has exactly one implementation today, and none
-ships a registry, factory or plugin loader behind it — a second implementation
-is what would tell us what those should look like.
+Four abstract base classes. Two are already load-bearing: `LLMClient` has three
+implementations behind a factory, `UpstreamClient` four behind the `CLIENT_TYPES`
+registry. `Classifier` and `ConfigSource` have one apiece — they are seams for
+what comes next (an embedding tier, a database-backed config), and a second
+implementation is what would tell us what the interface should really look
+like.
 
 | Seam | File | What it lets you replace | Why it is here |
 |---|---|---|---|

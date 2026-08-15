@@ -109,8 +109,10 @@ make test    # 102 tests: 75 unit + 27 over real HTTP
 
 ## What it does
 
-Actual output. These questions are parametrized in `tests/test_live_api.py`,
-so the table cannot drift from the code without failing CI.
+Actual output, captured from a running server. Five of these are asserted in
+`tests/test_live_api.py` and the rest in `tests/test_classifier.py`, though the
+tests check the intent rather than every column — so treat the context and
+confidence columns as a snapshot, not a guarantee.
 
 | Question | Intent | Selected context | Confidence |
 |---|---|---|---|
@@ -158,11 +160,14 @@ merge arithmetic made explicit.**
 - **Three reasons an item is absent** — excluded (a rule removed it), unavailable
   (an upstream failed), dropped for budget — reported separately, because
   collapsing them makes a deliberate decision look like an outage.
-- **`maxWords = min(subscription, intent, context volume)`.** The third is a
-  hallucination control: ask for 250 words when two thin facts survived and the
-  model invents the rest.
-- **Adding an intent is one YAML block, zero code.** A dangling context key
-  fails at startup, not at 3am.
+- **`maxWords = max(floor, min(subscription, intent, context volume))`.** The
+  context term is a hallucination control: ask for 250 words when two thin facts
+  survived and the model invents the rest. The floor stops it collapsing to
+  nothing.
+- **Adding an intent is one YAML block plus one line in the `Intent` enum.**
+  The enum is the reason a typo in config dies at boot instead of silently
+  selecting nothing — that safety costs one line of Python per intent. Adding a
+  new *service* really is zero code beyond its client: those are string-keyed.
 
 ---
 
@@ -218,6 +223,13 @@ merge arithmetic made explicit.**
 - **The out-of-domain gate is lexical.** "How do I reset my password?" contains
   "my" and passes. Structural, not tunable: "What should I prioritize this week?"
   is lexically identical and must stay in-domain.
+- **The merge threshold has no margin on its own showcase.** "Will I get a
+  salary hike this year?" produces `absoluteEvidence` of exactly 0.8 against a
+  `min_evidence` of exactly 0.8, surviving only because the comparison is strict
+  `<`. Raise the threshold by 0.01 and that row becomes `general`.
+- **A stale-served upstream is invisible in the API.** Under stale-on-error the
+  fetch reports success, so `upstreamFailures` is empty and the debug trace looks
+  fully healthy — it cannot tell you the answer came from last-known-good.
 - **Thresholds are provisional, not tuned** — across an 11-case trace,
   `min_evidence` changed the outcome zero times. Proper tuning needs a few
   hundred labelled questions.
@@ -258,7 +270,7 @@ merge arithmetic made explicit.**
 │   ├── confidence.py               deterministic confidence + sourcesUsed
 │   │
 │   ├── api/
-│   │   ├── router.py               /personalize, /debug/personalization, /health
+│   │   ├── router.py               /personalize, /debug/personalization, /health, /_cache
 │   │   └── request_response.py     wire contracts, kept apart from domain types
 │   │
 │   ├── middleware/

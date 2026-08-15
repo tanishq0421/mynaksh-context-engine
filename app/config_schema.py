@@ -146,7 +146,7 @@ class LengthRule(BaseModel):
 
     The third is a hallucination control rather than a product setting: asking
     for 250 words when only two thin facts survived the fan-out makes the model
-    invent filler. See tokens_per_word in the engine.
+    invent filler. See words_per_context_item below.
     """
 
     subscription: dict[str, int] = Field(default_factory=dict)
