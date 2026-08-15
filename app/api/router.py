@@ -173,8 +173,11 @@ async def debug_personalization(
         absolute_evidence=round(classification.absolute_evidence, 4),
         relative_dominance=round(classification.relative_dominance, 4),
         matched_terms={s.intent.value: s.matched_terms for s in classification.ranked if s.matched_terms},
-        language=plan.language,
-        tone=plan.tone,
+        # Display forms here, raw values internally. This endpoint exists to be
+        # read by a human explaining a decision; the prompt builder keeps the
+        # BCP-47 code it needs.
+        language=_language_name(plan.language),
+        tone=plan.tone.capitalize(),
         max_words=plan.max_words,
         selected_context=[i.display_name for i in resolved.selected],
         excluded_context=[_name(k) for k in resolved.excluded],
@@ -217,3 +220,12 @@ async def clear_cache(request: Request) -> None:
 def _name(key: str) -> str:
     item = REGISTRY.get(key)
     return item.display_name if item else key
+
+
+# Only English is supported; the map exists so an unknown code degrades to the
+# code itself rather than to a wrong language name.
+_LANGUAGE_NAMES = {"en": "English"}
+
+
+def _language_name(code: str) -> str:
+    return _LANGUAGE_NAMES.get(code, code)
