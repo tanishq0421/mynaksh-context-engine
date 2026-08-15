@@ -23,6 +23,15 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Explicit, because the repo has several top-level packages and auto-discovery
+# refuses to guess between them.
+packages = ["app", "app.api", "app.classifier", "app.engine", "app.llm", "app.middleware", "app.prompt", "app.services", "mock_services"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
