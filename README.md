@@ -98,6 +98,51 @@ it, which is a different fact from the 6th House simply never being a candidate.
 
 ---
 
+## The brief's sample questions
+
+Live output, all five, `user_101`. Nothing here is illustrative — these are the
+actual responses from a running server.
+
+| Question | Intent | Reason | Time scope | Selected context | Confidence |
+|---|---|---|---|---|---|
+| Should I consider changing my job this year? | `career` | `CONFIDENT_MATCH` | `this_year` | 10th House, Current Dasha, Career Horoscope, Today's Panchang | HIGH |
+| How does this month look for my relationship? | `relationship` | `CONFIDENT_MATCH` | `this_month` | 7th House, Relationship Horoscope, Current Dasha, Moon Sign | HIGH |
+| What should I focus on for my health? | `health` | `CONFIDENT_MATCH` | `unspecified` | Health Horoscope, 6th House, Moon Sign, Today's Panchang | HIGH |
+| What should I prioritize this week? | `general` | `NO_EVIDENCE_DEFAULT` | `this_week` | all 12 items | MEDIUM |
+| Can you summarize today's guidance? | `general` | `NO_EVIDENCE_DEFAULT` | `today` | all 12 items, Panchang first | MEDIUM |
+
+Four things worth reading off that table:
+
+**The two `general` rows are not failures.** Neither question carries a topical
+keyword, and neither is *about* a topic — "what should I prioritize" is a
+request for everything. `NO_EVIDENCE_DEFAULT` is the classifier reporting
+honestly that it found no evidence, and `general` maps to all available context,
+which is the right answer. Confidence drops to MEDIUM because the intent was a
+fallback rather than a match, and that is the system saying so rather than
+hiding it.
+
+**Exclusions are per-intent and mutual.** Career excludes Relationship
+Horoscope; relationship excludes Career Horoscope; health excludes Finance
+Horoscope. This is an answer-quality control, not a token saving: leave
+relationship context in a career prompt and the model will work it into the
+answer.
+
+**Time scope moves selection independently of intent.** "This week" and "today"
+produce different orderings of the same twelve items — Panchang leads for
+`today` and sinks for `this_year`, while Dasha does the reverse.
+
+**Beyond the brief**, the same path handles genuine ambiguity and questions that
+are not ours to answer:
+
+| Question | Result |
+|---|---|
+| Will I get a salary hike this year? | `AMBIGUOUS_MERGED` — `{finance: 0.62, career: 0.38}`, context drawn from both, confidence MEDIUM |
+| Should I switch companies? | `career` — no `job` or `career` token appears; the paraphrase vocabulary carries it |
+| What does my Cancer moon sign mean? | `general`, **not** health — `cancer` is a sign as well as a disease |
+| What is the capital of France? | `OUT_OF_DOMAIN` — declined, and the LLM is never called |
+
+---
+
 ## Running the service
 
 ### Docker (primary path)
@@ -252,7 +297,7 @@ once.
 ## Architecture
 
 Full diagrams — ASCII and Mermaid — plus the boot sequence, failure paths and
-extension seams are in **[docs/architecture.md](docs/architecture.md)**.
+extension seams are in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ```
    Client
@@ -1059,7 +1104,7 @@ Ordered by value.
 │   └── services.yaml          per-service timeout, retries, TTL, criticality
 ├── mock_services/             scaffolding: stand-in backends + runtime fault injection
 ├── tests/                     focused on selection logic and partial-failure behaviour
-├── docs/architecture.md       diagrams, boot sequence, failure paths, extension seams
+├── ARCHITECTURE.md            diagrams, boot sequence, failure paths, extension seams
 ├── docker-compose.yml         engine :8000 + mocks :8001, single worker each
 ├── Dockerfile                 one image, two roles
 └── Makefile                   run, ask, debug, and the three fault demos

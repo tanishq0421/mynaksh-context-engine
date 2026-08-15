@@ -62,22 +62,22 @@ human-readable configuration into the numeric form the request path uses.
                                     └────┬─────┘
                  POST /personalize   ·   POST /debug/personalization
                                          │
- ╔═══════════════════════════════════════▼═══════════════════════════════════╗
+ ╔═══════════════════════════════════════▼════════════════════════════════════╗
  ║ ENGINE  —  FastAPI / uvicorn, single worker                        :8000   ║
  ║                                                                            ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 1  MIDDLEWARE      request-id  ▸  JSON logging  ▸  latency            │  ║
+ ║  │ 1  MIDDLEWARE      request-id  ▸  JSON logging  ▸  latency           │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║                                  ▼                                         ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
  ║  │ 2  INTENT CLASSIFIER                                                 │  ║
- ║  │    domain gate ▸ time-scope ▸ phrases ▸ terms ▸ negation discount     │  ║
- ║  │    evidence vector {intent: float}   ▸   decision policy              │  ║
+ ║  │    domain gate ▸ time-scope ▸ phrases ▸ terms ▸ negation discount    │  ║
+ ║  │    evidence vector {intent: float}   ▸   decision policy             │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║          intent · weights (Σ = 1) · time scope · decision reason           ║
  ║                                  ▼                                         ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 3  CONTEXT AGGREGATOR      asyncio.gather — latency = slowest, not sum│  ║
+ ║  │ 3  CONTEXT AGGREGATOR     asyncio.gather — latency = slowest, not sum│  ║
  ║  │                                                                      │  ║
  ║  │  ┌────────┐    ┌────────┐    ┌───────────┐    ┌──────────┐           │  ║
  ║  │  │  user  │    │ kundli │    │ horoscope │    │ panchang │  all four │  ║
@@ -87,8 +87,8 @@ human-readable configuration into the numeric form the request path uses.
  ║  │      └─────────────┴───────┬───────┴───────────────┘                 │  ║
  ║  │                            ▼                                         │  ║
  ║  │  ┌────────────────────────────────────────────────────────────────┐  │  ║
- ║  │  │ IN-MEMORY CACHE   per-service TTL · stale-on-error ·            │  │  ║
- ║  │  │ (sits between clients and upstreams)   single-flight            │  │  ║
+ ║  │  │ IN-MEMORY CACHE   per-service TTL · stale-on-error ·           │  │  ║
+ ║  │  │ (sits between clients and upstreams)   single-flight           │  │  ║
  ║  │  └──────────────────────────────┬─────────────────────────────────┘  │  ║
  ║  └─────────────────────────────────┼────────────────────────────────────┘  ║
  ╚════════════════════════════════════┼═══════════════════════════════════════╝
@@ -97,7 +97,7 @@ human-readable configuration into the numeric form the request path uses.
                                       ▼
  ╔════════════════════════════════════════════════════════════════════════════╗
  ║ MOCK SERVICES  —  separate FastAPI process                         :8001   ║
- ║   GET /users/{id}   GET /kundli/{id}   GET /horoscope/{id}   GET /panchang ║
+ ║   GET /users/{id}  GET /kundli/{id}  GET /horoscope/{id}  GET /panchang   ║
  ║   POST|DELETE /_faults  →  error · timeout · slow · malformed-200          ║
  ╚════════════════════════════════════┬═══════════════════════════════════════╝
                                       │ ContextBundle
@@ -112,19 +112,19 @@ human-readable configuration into the numeric form the request path uses.
  ║  │ 4  PERSONALIZATION ENGINE                                            │  ║
  ║  │                                                                      │  ║
  ║  │  ┌────────────────────────────┐   PLANNER — phase 1, pure            │  ║
- ║  │  │ score(item) =              │   sees intent + profile + config      │  ║
- ║  │  │   Σ intent_w × tier_w      │   and NOTHING about what resolved.    │  ║
- ║  │  │   + time_scope_modifier    │   Also decides language, tone,        │  ║
- ║  │  │   then hard-zero if        │   maxWords.                           │  ║
- ║  │  │   excluded (applied last)  │                                       │  ║
- ║  │  └─────────────┬──────────────┘                                       │  ║
- ║  │                ▼ ranked candidates, descending                        │  ║
- ║  │  ┌────────────────────────────┐   SELECTOR — phase 2                  │  ║
- ║  │  │ walk the ranking, spend a  │   resolves the plan against what      │  ║
- ║  │  │ token budget, backfill     │   actually arrived. Backfill is just  │  ║
- ║  │  │ falls out for free         │   "keep walking".                     │  ║
- ║  │  └─────────────┬──────────────┘                                       │  ║
- ║  └────────────────┼──────────────────────────────────────────────────────┘  ║
+ ║  │  │ score(item) =             │   sees intent + profile + config      │  ║
+ ║  │  │   Σ intent_w × tier_w     │   and NOTHING about what resolved.    │  ║
+ ║  │  │   + time_scope_modifier    │   Also decides language, tone,       │  ║
+ ║  │  │   then hard-zero if        │   maxWords.                          │  ║
+ ║  │  │   excluded (applied last)  │                                      │  ║
+ ║  │  └─────────────┬──────────────┘                                      │  ║
+ ║  │                ▼ ranked candidates, descending                       │  ║
+ ║  │  ┌────────────────────────────┐   SELECTOR — phase 2                 │  ║
+ ║  │  │ walk the ranking, spend a  │   resolves the plan against what     │  ║
+ ║  │  │ token budget, backfill    │   actually arrived. Backfill is just  │  ║
+ ║  │  │ falls out for free         │   "keep walking".                    │  ║
+ ║  │  └─────────────┬──────────────┘                                      │  ║
+ ║  └────────────────┼─────────────────────────────────────────────────────┘  ║
  ║                   │                                                        ║
  ║      ┌────────────┼────────────┬─────────────────┬──────────────────┐      ║
  ║      ▼            ▼            ▼                 ▼                  │      ║
@@ -141,29 +141,29 @@ human-readable configuration into the numeric form the request path uses.
  ║      │                                              │  personalization  │  ║
  ║      │                                              │  RESPONSE         │  ║
  ║      │                                              └───────────────────┘  ║
- ║══════╪═════════ /debug/personalization STOPS HERE — never calls the LLM ═══║
+ ║══════╪═════════ /debug/personalization STOPS HERE — never calls the LLM ════║
  ║      ▼                                                                     ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 5  PROMPT BUILDER    only selected items · only via their renderers   │  ║
- ║  │                      never raw JSON · logs prompt size                │  ║
+ ║  │ 5  PROMPT BUILDER   only selected items · only via their renderers   │  ║
+ ║  │                     never raw JSON · logs prompt size                │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║                    (system, user) ▼                                        ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 6  LLM PROVIDER  (swappable — LLMClient ABC)                          │  ║
- ║  │        ┌─────────────┐   ┌──────────┐   ┌────────────────────────┐    │  ║
- ║  │        │  anthropic  │   │  openai  │   │ mock (deterministic)   │    │  ║
- ║  │        │ SDK, lazy   │   │SDK, lazy │   │ default when no API key│    │  ║
- ║  │        └─────────────┘   └──────────┘   └────────────────────────┘    │  ║
+ ║  │ 6  LLM PROVIDER  (swappable — LLMClient ABC)                         │  ║
+ ║  │       ┌─────────────┐   ┌──────────┐   ┌────────────────────────┐    │  ║
+ ║  │       │  anthropic  │   │  openai  │   │ mock (deterministic)   │    │  ║
+ ║  │       │ SDK, lazy   │   │SDK, lazy │   │ default when no API key│    │  ║
+ ║  │       └─────────────┘   └──────────┘   └────────────────────────┘    │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║                                  ▼                                         ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 7  CONFIDENCE SCORER    primary-source coverage × intent certainty    │  ║
- ║  │                         deterministic — never the model's own opinion │  ║
+ ║  │ 7  CONFIDENCE SCORER   primary-source coverage × intent certainty    │  ║
+ ║  │                        deterministic — never the model's own opinion │  ║
  ║  └───────────────────────────────┬──────────────────────────────────────┘  ║
  ║                                  ▼                                         ║
  ║  ┌──────────────────────────────────────────────────────────────────────┐  ║
- ║  │ 8  /personalize RESPONSE   {answer, confidence, sourcesUsed}          │  ║
- ║  │    sourcesUsed is derived from selection, not from the model          │  ║
+ ║  │ 8  /personalize RESPONSE   {answer, confidence, sourcesUsed}         │  ║
+ ║  │    sourcesUsed is derived from selection, not from the model         │  ║
  ║  └──────────────────────────────────────────────────────────────────────┘  ║
  ╚════════════════════════════════════════════════════════════════════════════╝
 ```
