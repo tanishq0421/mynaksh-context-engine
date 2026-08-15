@@ -47,7 +47,63 @@ curl -sS -X POST localhost:8000/personalize -H 'Content-Type: application/json' 
 LLM — intent, matched terms, every context item with its score and the reason for
 it, and what was excluded, unavailable or dropped for budget.
 
-Also: `make ask`, `make debug`, `make demo-degraded`, `make demo-stale`, `make test`.
+---
+
+## Simulating failures
+
+**All of these need the stack already running** — `docker compose up --build`
+first, then these in a second terminal. They call the live services; they do not
+start anything.
+
+The mock services expose a fault switch, so an upstream can be broken at runtime
+without restarting or touching the engine:
+
+```bash
+make demo-healthy     # baseline: all four services up
+make demo-degraded    # kundli returns 500 -> fewer sources, lower confidence
+make demo-stale       # kundli returns 500, but the cache is warm -> full answer
+make demo-reset       # clear all faults and the cache
+```
+
+`demo-degraded` and `demo-stale` inject the *same* fault and behave differently
+on purpose. The only difference is the cache:
+
+| | cache | result |
+|---|---|---|
+| `demo-degraded` | cleared first | 2 sources, confidence LOW — the engine answers from whatever survived |
+| `demo-stale` | left warm | 4 sources, confidence HIGH — served from last-known-good |
+
+That second one is the point of caching: an upstream outage degrades the answer
+rather than breaking it. Auto-clearing the cache whenever a fault fired would
+make that path impossible to demonstrate, which is why the sequencing lives in
+the Makefile rather than in either service.
+
+Pick the service and failure mode:
+
+```bash
+make demo-degraded SERVICE=horoscope FAULT=timeout
+```
+
+`FAULT` is one of `error` (500), `timeout` (sleeps past the client deadline),
+`slow` (1s but succeeds — set all four to prove the fan-out is concurrent), or
+`malformed` (a valid 200 carrying a wrong-shaped body).
+
+Ask your own questions, as any of the three fixture users:
+
+```bash
+make ask   USER_ID=user_102 Q="What should I focus on for my health?"   # the answer
+make debug USER_ID=user_102 Q="What should I focus on for my health?"   # the reasoning
+```
+
+`user_101` is premium/motivational with a full chart, `user_102` is free tier
+with a different tone, and `user_103` has a valid kundli that is **missing its
+10th house** — which exercises partial failure inside a *healthy* service.
+
+Tests need no running stack; the live suite starts its own servers:
+
+```bash
+make test    # 102 tests: 75 unit + 27 over real HTTP
+```
 
 ---
 
