@@ -129,7 +129,7 @@ because the intent was a fallback rather than a match.
 
 ## Personalization engine
 
-Config is what a domain expert reads:
+Config stays readable — named tiers, not a table of decimals:
 
 ```yaml
 career:
@@ -192,7 +192,7 @@ merge arithmetic made explicit.**
 | Decision | Instead of | Why |
 |---|---|---|
 | Scored selection | Flat tier lists at runtime | Merge, time scope, budget and backfill come free; tiers need a special case each |
-| Tiers in config, weights at boot | Numbers in the file | An astrologer reviews categories, not decimals |
+| Tiers in config, weights at boot | Numbers in the file | Named tiers are readable and reviewable; a wall of decimals is neither. One tier weight also changes policy everywhere, instead of a find-and-replace across every intent |
 | Registry in code | Registry in YAML | Extractors and renderers are functions; logic in YAML is a language with no type checker |
 | Rules-only classification | Embedding / LLM classifier | A deterministic fallback is needed anyway. Measured: rules handle every sample question at zero latency; embeddings scored 16/20 and add a model download |
 | Deterministic confidence | Ask the model | Models are badly calibrated at self-reporting |
@@ -242,7 +242,7 @@ merge arithmetic made explicit.**
 
 ---
 
-## Layout
+## Project structure
 
 ```
 .
