@@ -173,85 +173,98 @@ human-readable configuration into the numeric form the request path uses.
 ## 2. Box diagram (Mermaid)
 
 ```mermaid
-flowchart TD
+flowchart LR
     Client(["Client"])
 
-    subgraph BOOT["BOOT PATH — once, at startup, fail-fast"]
-        direction LR
+    subgraph BOOT["BOOT — once, at startup, fail-fast"]
+        direction TB
         Y1["config/intents.yaml<br/>lexicon · gate · thresholds"]
         Y2["config/personalization.yaml<br/>tiers · modifiers · tone · length"]
         Y3["config/services.yaml<br/>timeout · retries · TTL · criticality"]
-        REG["CONTEXT REGISTRY<br/>app/engine/registry.py — in CODE<br/>key → extractor, renderer, token cost"]
-        C1["compile lexicons<br/>→ inverted index"]
-        C2["compile TIERS<br/>→ item-keyed weights + exclusions"]
-        C3["build clients<br/>with per-service policy"]
+        REG["CONTEXT REGISTRY — in code<br/>key → extractor, renderer, cost"]
+        C1["inverted index"]
+        C2["item-keyed weights"]
+        C3["clients + policy"]
         Y1 --> C1
         Y2 --> C2
         Y3 --> C3
-        REG -- "cross-validate:<br/>dangling key = refuse to start" --> C2
+        REG -- "dangling key = refuse to start" --> C2
     end
 
-    subgraph ENGINE["ENGINE PROCESS — FastAPI :8000"]
-        MW["1 MIDDLEWARE<br/>request-id · JSON logging · latency"]
-        CLS["2 INTENT CLASSIFIER<br/>domain gate → time-scope → phrases → terms → negation<br/>evidence vector → decision policy"]
-        AGG["3 CONTEXT AGGREGATOR<br/>asyncio.gather — latency = slowest, not sum"]
-        CACHE[("IN-MEMORY CACHE<br/>per-service TTL · stale-on-error · single-flight")]
-        PLAN["4a PLANNER — phase 1, pure<br/>score = Σ intent_w × tier_w + time_modifier<br/>then hard-zero if excluded<br/>also: language, tone, maxWords"]
-        SEL["4b SELECTOR — phase 2<br/>walk the ranking, spend the token budget, backfill"]
-        PB["5 PROMPT BUILDER<br/>selected items only, via renderers, never raw JSON"]
-        LLM["6 LLM PROVIDER — swappable"]
-        CONF["7 CONFIDENCE SCORER<br/>coverage × intent certainty, deterministic"]
-        RESP["8 /personalize RESPONSE<br/>answer · confidence · sourcesUsed"]
-    end
-
-    subgraph UP["UPSTREAM CLIENTS — concurrent fan-out"]
+    subgraph REQ["REQUEST PATH — FastAPI :8000"]
         direction LR
-        U1["user<br/>REQUIRED"]
-        U2["kundli<br/>degradable"]
-        U3["horoscope<br/>degradable"]
-        U4["panchang<br/>degradable"]
+        MW["1 MIDDLEWARE<br/>request-id · JSON logs · latency"]
+
+        subgraph UNDERSTAND["understand"]
+            direction TB
+            CLS["2 CLASSIFIER<br/>gate → time scope → phrases<br/>→ terms → negation<br/>evidence vector → policy"]
+        end
+
+        subgraph GATHER["gather"]
+            direction TB
+            AGG["3 AGGREGATOR<br/>asyncio.gather<br/>latency = slowest, not sum"]
+            CACHE[("CACHE<br/>per-service TTL<br/>stale-on-error<br/>single-flight")]
+            AGG --- CACHE
+        end
+
+        subgraph SELECT["select"]
+            direction TB
+            PLAN["4a PLANNER — pure<br/>Σ intent_w × tier_w<br/>+ time modifier<br/>hard-zero if excluded"]
+            SEL["4b SELECTOR<br/>walk ranking, spend budget,<br/>backfill on failure"]
+            PLAN --> SEL
+        end
+
+        subgraph ANSWER["answer"]
+            direction TB
+            PB["5 PROMPT BUILDER<br/>selected only, via renderers"]
+            LLM["6 LLM PROVIDER<br/>swappable"]
+            CONF["7 CONFIDENCE<br/>coverage × certainty"]
+            PB --> LLM --> CONF
+        end
+
+        RESP["8 RESPONSE<br/>answer · confidence<br/>sourcesUsed"]
     end
 
-    subgraph MOCKS["MOCK SERVICES — separate process :8001"]
-        direction LR
-        M1["GET /users/id"]
-        M2["GET /kundli/id"]
-        M3["GET /horoscope/id"]
-        M4["GET /panchang"]
-        MF["POST/DELETE /_faults<br/>error · timeout · slow · malformed-200"]
+    subgraph UP["UPSTREAMS — concurrent"]
+        direction TB
+        U1["user — REQUIRED"]
+        U2["kundli"]
+        U3["horoscope"]
+        U4["panchang"]
+    end
+
+    subgraph MOCKS["MOCKS :8001"]
+        direction TB
+        M["GET /users · /kundli<br/>/horoscope · /panchang"]
+        MF["/_faults<br/>error · timeout<br/>slow · malformed-200"]
     end
 
     subgraph PROV["PROVIDERS"]
-        direction LR
+        direction TB
         P1["anthropic"]
         P2["openai"]
-        P3["mock — default with no API key"]
+        P3["mock — default"]
     end
 
-    subgraph ABSENT["THREE DISTINCT ABSENCE REASONS"]
-        direction LR
-        A1["excluded<br/>rules said no"]
-        A2["unavailable<br/>upstream let us down"]
-        A3["droppedForBudget<br/>relevant but did not fit"]
+    subgraph ABSENT["ABSENCE REASONS"]
+        direction TB
+        A1["excluded — rules said no"]
+        A2["unavailable — upstream failed"]
+        A3["droppedForBudget — did not fit"]
     end
 
-    DBG["/debug/personalization RESPONSE<br/>STOPS HERE — never calls the LLM"]
+    DBG["/debug/personalization<br/>STOPS HERE — no LLM call"]
 
-    Client -->|POST| MW
-    MW --> CLS
-    CLS -->|"intent · weights Σ=1 · time scope"| AGG
-    AGG --> U1 & U2 & U3 & U4
-    U1 & U2 & U3 & U4 --> CACHE
-    CACHE -->|"miss: HTTP, timeout → retry + backoff"| MOCKS
-    MOCKS -->|"ContextBundle: data + failures + stale"| PLAN
-    CLS -.->|"intent, weights, time scope"| PLAN
-    PLAN -->|"ranked candidates, descending"| SEL
+    Client -->|POST| MW --> CLS
+    CLS -->|"intent · weights Σ=1 · scope"| AGG
+    AGG --> UP
+    UP -->|"timeout → retry + backoff"| MOCKS
+    MOCKS -->|"bundle: data + failures + stale"| PLAN
+    CLS -.->|"plan inputs"| PLAN
+    SEL --> PB
     SEL --> ABSENT
     SEL --> DBG
-    SEL -->|"selected context"| PB
-    PB -->|"system + user prompt"| LLM
-    LLM --> PROV
-    LLM --> CONF
+    LLM -.-> PROV
     CONF --> RESP
 
     C1 -.-> CLS
