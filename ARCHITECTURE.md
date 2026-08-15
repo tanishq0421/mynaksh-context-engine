@@ -26,100 +26,47 @@ terminals and plain-text viewers.
 flowchart LR
     Client(["Client"])
 
-    subgraph BOOT["BOOT — once, at startup, fail-fast"]
+    subgraph BOOT["BOOT — once, fail-fast"]
         direction TB
-        Y1["config/intents.yaml<br/>lexicon · gate · thresholds"]
-        Y2["config/personalization.yaml<br/>tiers · modifiers · tone · length"]
-        Y3["config/services.yaml<br/>timeout · retries · TTL · criticality"]
-        REG["CONTEXT REGISTRY — in code<br/>key → extractor, renderer, cost"]
-        C1["inverted index"]
-        C2["item-keyed weights"]
-        C3["clients + policy"]
-        Y1 --> C1
-        Y2 --> C2
-        Y3 --> C3
-        REG -- "dangling key = refuse to start" --> C2
+        CFG["config/*.yaml<br/>intents · personalization · services"]
+        REG["registry — in code<br/>extractor · renderer · cost"]
+        COMP["compile<br/>inverted index · item-keyed weights"]
+        CFG --> COMP
+        REG -- "dangling key = refuse to start" --> COMP
     end
 
-    subgraph REQ["REQUEST PATH — FastAPI :8000"]
-        direction LR
-        MW["1 MIDDLEWARE<br/>request-id · JSON logs · latency"]
+    MW["1 middleware<br/>request-id · JSON logs · latency"]
+    CLS["2 classifier<br/>intent · weights Σ=1 · time scope"]
+    AGG["3 aggregator<br/>concurrent fan-out"]
+    CACHE[("cache<br/>per-service TTL<br/>stale-on-error · single-flight")]
+    PLAN["4a planner — pure<br/>Σ intent_w × tier_w + time modifier<br/>tone · language · maxWords"]
+    SEL["4b selector<br/>spend token budget · backfill"]
+    PB["5 prompt builder<br/>selected items only"]
+    LLM["6 LLM provider<br/>anthropic · openai · mock"]
+    CONF["7 confidence<br/>coverage × intent certainty"]
+    RESP(["answer · confidence · sourcesUsed"])
+    DBG(["/debug/personalization<br/>stops here — no LLM call"])
 
-        subgraph UNDERSTAND["understand"]
-            direction TB
-            CLS["2 CLASSIFIER<br/>gate → time scope → phrases<br/>→ terms → negation<br/>evidence vector → policy"]
-        end
-
-        subgraph GATHER["gather"]
-            direction TB
-            AGG["3 AGGREGATOR<br/>asyncio.gather<br/>latency = slowest, not sum"]
-            CACHE[("CACHE<br/>per-service TTL<br/>stale-on-error<br/>single-flight")]
-            AGG --- CACHE
-        end
-
-        subgraph SELECT["select"]
-            direction TB
-            PLAN["4a PLANNER — pure<br/>Σ intent_w × tier_w<br/>+ time modifier<br/>hard-zero if excluded"]
-            SEL["4b SELECTOR<br/>walk ranking, spend budget,<br/>backfill on failure"]
-            PLAN --> SEL
-        end
-
-        subgraph ANSWER["answer"]
-            direction TB
-            PB["5 PROMPT BUILDER<br/>selected only, via renderers"]
-            LLM["6 LLM PROVIDER<br/>swappable"]
-            CONF["7 CONFIDENCE<br/>coverage × certainty"]
-            PB --> LLM --> CONF
-        end
-
-        RESP["8 RESPONSE<br/>answer · confidence<br/>sourcesUsed"]
-    end
-
-    subgraph UP["UPSTREAMS — concurrent"]
+    subgraph UP["upstreams — all four at once"]
         direction TB
-        U1["user — REQUIRED"]
+        U1["user · REQUIRED"]
         U2["kundli"]
         U3["horoscope"]
         U4["panchang"]
     end
 
-    subgraph MOCKS["MOCKS :8001"]
-        direction TB
-        M["GET /users · /kundli<br/>/horoscope · /panchang"]
-        MF["/_faults<br/>error · timeout<br/>slow · malformed-200"]
-    end
+    Client -->|"POST"| MW --> CLS --> AGG
+    AGG <-->|"hit / miss"| CACHE
+    CACHE -->|"timeout → retry"| UP
+    UP -->|"bundle: data + failures"| SEL
+    CLS -->|"intent, weights, scope"| PLAN
+    PLAN -->|"ranked candidates"| SEL
+    SEL -->|"selected context"| PB --> LLM --> CONF --> RESP
+    SEL -.->|"excluded · unavailable<br/>droppedForBudget"| DBG
 
-    subgraph PROV["PROVIDERS"]
-        direction TB
-        P1["anthropic"]
-        P2["openai"]
-        P3["mock — default"]
-    end
-
-    subgraph ABSENT["ABSENCE REASONS"]
-        direction TB
-        A1["excluded — rules said no"]
-        A2["unavailable — upstream failed"]
-        A3["droppedForBudget — did not fit"]
-    end
-
-    DBG["/debug/personalization<br/>STOPS HERE — no LLM call"]
-
-    Client -->|POST| MW --> CLS
-    CLS -->|"intent · weights Σ=1 · scope"| AGG
-    AGG --> UP
-    UP -->|"timeout → retry + backoff"| MOCKS
-    MOCKS -->|"bundle: data + failures + stale"| PLAN
-    CLS -.->|"plan inputs"| PLAN
-    SEL --> PB
-    SEL --> ABSENT
-    SEL --> DBG
-    LLM -.-> PROV
-    CONF --> RESP
-
-    C1 -.-> CLS
-    C2 -.-> PLAN
-    C3 -.-> UP
+    COMP -.-> CLS
+    COMP -.-> PLAN
+    COMP -.-> UP
 
     classDef stop fill:#fde,stroke:#c39,stroke-width:2px
     class DBG stop
@@ -389,26 +336,18 @@ up as a personal one is worse than an error.
 `UpstreamClient` (`app/services/base.py`) so a subclass is a URL and a shape
 check.
 
-- **4xx is not retried.** A 404 means this user has no kundli and will still
-  have none in 100ms; retrying burns the whole request's timeout budget to
-  re-learn something already known. `UpstreamStatusError.is_retryable` is
-  `status_code >= 500`.
-- **Malformed 200 is a distinct type, and is not retried.** `UpstreamMalformedError`
-  covers a healthy transport carrying a body that does not match the contract.
-  The same upstream will serialise the same wrong shape again. This is the
-  failure mode people forget: nothing throws at the network layer, and a client
-  that only guards against exceptions parses nonsense into its domain model.
-  The mock services can inject it (`{"panchang": "malformed"}` returns a JSON
-  array where an object was promised).
-- **Stale-on-error.** If every attempt fails and an expired entry exists, it is
-  served and flagged `stale=True`. This is the difference between degraded and
-  broken.
-- **Single-flight.** When a TTL expires under concurrent load, one caller
-  refreshes and the rest await the same future — otherwise N simultaneous
-  requests become N identical upstream calls at exactly the moment the upstream
-  is least healthy. No locking: asyncio runs one coroutine at a time, so any
-  stretch without an `await` is already atomic.
-- **No circuit breaker**, deliberately. See the README's Trade-offs.
+- **4xx is not retried** (`is_retryable` is `status >= 500`). A 404 will still
+  be a 404 in 100ms; retrying spends the request's timeout budget re-learning it.
+- **A malformed 200 is its own type** (`UpstreamMalformedError`) and is not
+  retried either — the same upstream will serialise the same wrong shape. This
+  is the one people miss: nothing throws at the network layer, so a client that
+  only catches exceptions parses nonsense into its domain model.
+- **Stale-on-error.** All attempts failed but an expired entry exists → serve it,
+  flagged `stale=True`. The difference between degraded and broken.
+- **Single-flight.** On an expired TTL, one caller refreshes and the rest await
+  the same future — otherwise N concurrent requests become N upstream calls at
+  the worst possible moment. No locking needed; asyncio yields only at `await`.
+- **No circuit breaker**, deliberately — see the README's Trade-offs.
 
 ### Partial failure inside a healthy service
 
