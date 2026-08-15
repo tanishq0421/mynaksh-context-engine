@@ -206,7 +206,7 @@ merge arithmetic made explicit.**
 
 - **One LLM call doing classify + answer.** Fatal: you cannot select context
   before knowing intent, so it forces sending everything.
-- **A vector DB of vocabulary.** You embed the six intents (~60 vectors, a
+- **A vector DB of vocabulary.** You embed the four scored intents (~40 vectors, a
   Python list), not every word a user might type.
 - **DB-backed config.** Loses atomic deploy-with-code and boot validation; a row
   can reference a key the running build lacks.
