@@ -189,15 +189,71 @@ merge arithmetic made explicit.**
 ## Layout
 
 ```
-app/
-  classifier/   tokenizer, signals, domain gate, rules   → intent + time scope
-  engine/       registry, compiler, planner, selector    → what context, and why
-  services/     base client, cache, 4 clients, aggregator → concurrent fan-out
-  prompt/       builder                                   → selected context only
-  llm/          base, factory, anthropic, openai, mock    → swappable provider
-  api/          router, request/response                  → the two endpoints
-config/         intents · personalization · services      → behaviour, as data
-mock_services/  the four upstreams + fault injection      → scaffolding
+.
+├── app/
+│   ├── main.py                     app wiring; config validated + compiled at boot
+│   ├── config.py                   deployment settings from .env
+│   ├── config_schema.py            typed shapes for config/*.yaml
+│   ├── config_loader.py            YAML → validated models; ConfigSource seam
+│   ├── domain.py                   shared vocabulary; imports no layer
+│   ├── confidence.py               deterministic confidence + sourcesUsed
+│   │
+│   ├── api/
+│   │   ├── router.py               /personalize, /debug/personalization, /health
+│   │   └── request_response.py     wire contracts, kept apart from domain types
+│   │
+│   ├── middleware/
+│   │   ├── context.py              request-id ContextVar
+│   │   └── logging.py              JSON formatter + latency logging
+│   │
+│   ├── classifier/                 question → intent + time scope
+│   │   ├── tokenizer.py            contractions, possessives — pinned first
+│   │   ├── signals.py              lexicon, phrases, negation, time scope
+│   │   ├── domain_gate.py          is this an astrology question at all
+│   │   ├── rules.py                score vector + decision policy
+│   │   └── base.py                 Classifier ABC — the embedding seam
+│   │
+│   ├── engine/                     what context, and why
+│   │   ├── registry.py             12 context items: extractor, renderer, cost
+│   │   ├── compiler.py             tiers → item-keyed weights, at boot
+│   │   ├── planner.py              phase 1: scores, tone, language, maxWords
+│   │   └── selector.py             phase 2: resolve vs availability + budget
+│   │
+│   ├── services/                   concurrent fan-out to the four upstreams
+│   │   ├── base.py                 UpstreamClient ABC: timeout, retry, stale
+│   │   ├── cache.py                per-service TTL, stale-on-error, single-flight
+│   │   ├── user.py kundli.py horoscope.py panchang.py
+│   │   └── aggregator.py           gather + criticality policy
+│   │
+│   ├── prompt/builder.py           selected context only; logs prompt size
+│   └── llm/
+│       ├── base.py                 LLMClient ABC
+│       ├── factory.py              provider resolution + mock fallback
+│       └── anthropic.py openai.py mock.py
+│
+├── config/                         behaviour as data, not code
+│   ├── intents.yaml                lexicon, thresholds, domain gate, time scope
+│   ├── personalization.yaml        tiers, modifiers, tone rules, length caps
+│   └── services.yaml               timeout, retries, TTL, criticality
+│
+├── mock_services/                  scaffolding — stands in for real backends
+│   ├── main.py                     the four endpoints, on their own port
+│   ├── data.py                     three fixture users
+│   └── faults.py                   error / timeout / slow / malformed injection
+│
+├── tests/
+│   ├── conftest.py                 fixtures load the real config
+│   ├── test_classifier.py          regressions for defects a trace found
+│   ├── test_multi_intent.py        merge fires when it should, and not otherwise
+│   ├── test_engine_selection.py    scoring, exclusion, backfill, budget
+│   ├── test_aggregator_failures.py concurrency, retries, stale, malformed
+│   └── test_live_api.py            both endpoints over a real socket
+│
+├── scripts/simulate.py             12-config failure matrix → report with logs
+├── ARCHITECTURE.md                 diagrams, boot sequence, failure paths
+├── Dockerfile  docker-compose.yml  one image, two roles
+├── Makefile                        run, demo and fault-injection targets
+└── pyproject.toml  .env.example
 ```
 
 ## Tests
