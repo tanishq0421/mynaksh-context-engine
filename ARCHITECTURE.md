@@ -239,10 +239,9 @@ system at a readable width — the Mermaid version above shows them together.
 
 ## 3. Boot sequence
 
-Everything expensive happens once, in `lifespan()` in `app/main.py`. The
-posture is fail-fast throughout: a configuration problem should kill the process
-at boot with the offending key in the message, not surface as a subtly wrong
-reading on a request at 3am.
+Everything expensive happens once, in `lifespan()` (`app/main.py`). Fail-fast
+throughout: a config problem kills the process with the offending key in the
+message, rather than surfacing as a subtly wrong reading at 3am.
 
 | Step | What happens | Where | What kills the boot |
 |---|---|---|---|
@@ -257,60 +256,49 @@ reading on a request at 3am.
 | 9 | Build one HTTP client, one cache, four upstream clients | `build_clients` | — |
 | 10 | Resolve the LLM provider and log it loudly | `app/llm/factory.py` | — (falls back to mock, at WARNING) |
 
-Steps 3, 4, 5, 7 and 8 exist because the same class of bug — a name that means
-one thing in YAML and another in code — is invisible at runtime. It does not
-raise; it silently drops a source.
+Steps 3–8 all guard one class of bug: a name meaning one thing in YAML and
+another in code. It never raises — it silently drops a source.
 
-Both halves of the system compile human-readable config into a numeric runtime
-form at boot: the classifier builds an inverted index, the engine builds a
-weight table. One mental model, one validation pass.
+Both halves compile config to a numeric runtime form here: an inverted index for
+the classifier, a weight table for the engine. One mental model, one pass.
 
 ---
 
 ## 4. Request lifecycle
 
-`/personalize` and `/debug/personalization` share `_run_pipeline()` in
-`app/api/router.py`. Debug is not a parallel implementation — it is the same
-code path stopping early. A debug endpoint that reimplemented the decision logic
-would eventually describe behaviour the live path no longer has, which is worse
-than having no debug endpoint.
+Both endpoints share `_run_pipeline()` (`app/api/router.py`). Debug is the same
+code path stopping early, not a parallel implementation — one that reimplemented
+the decision logic would eventually describe behaviour the live path no longer
+has.
 
-1. **Middleware** stamps a request id (honouring an inbound `X-Request-ID`),
-   installs it into a `ContextVar` so every log line in the request correlates,
-   and logs method/path/status/latency on the way out.
-2. **Classify.** Tokenize → extract time scope (consuming those tokens so "this
-   year" cannot also score as intent evidence) → run the in-domain gate → match
-   phrases (longest-match-wins, consuming) → match terms → apply the negation
-   discount. Accumulate into `dict[Intent, float]`, then apply the decision
-   policy. Output: primary intent, weights summing to 1.0, ranked runners-up,
-   matched terms, time scope, decision reason.
-3. **Fan out.** `asyncio.gather` over all four clients, `return_exceptions=True`.
-   Each client's `fetch` is total: it returns a `FetchResult`, it does not raise.
-   Result is a `ContextBundle` of data + a failure map + a stale set.
-4a. **Plan (phase 1).** Pure. Score every registry item from intent weights, tier
-   weights and the time-scope modifier; hard-zero anything excluded by an active
-   intent; sort descending with an alphabetical tie-break. Also decide language,
-   tone (preference capped per intent) and `maxWords`.
-4b. **Resolve (phase 2).** Walk the ranking. Skip excluded items, skip
-   non-positive scores, mark items whose service failed or whose extractor
-   returned `None` as unavailable, admit the rest while the token budget lasts.
-   A too-expensive item is recorded as `droppedForBudget` and the walk
-   *continues*, so a cheaper lower-ranked item can still fit.
+1. **Middleware** stamps a request id into a `ContextVar`, so every log line in
+   the request correlates, and logs method/path/status/latency on the way out.
+2. **Classify.** Tokenize → time scope (tokens consumed, so "this year" cannot
+   also score as intent evidence) → in-domain gate → phrases (longest-match,
+   consuming) → terms → negation discount. Accumulate into `dict[Intent, float]`,
+   then apply the decision policy.
+3. **Fan out.** `asyncio.gather` over all four clients. Every `fetch` is total —
+   it returns a `FetchResult`, never raises — yielding a `ContextBundle` of data
+   plus a failure map plus a stale set.
+4a. **Plan (phase 1).** Pure. Score every registry item, hard-zero exclusions,
+   sort descending (alphabetical tie-break, so plans are byte-identical across
+   runs). Also decides language, tone and `maxWords`.
+4b. **Resolve (phase 2).** Walk the ranking; a failed service or a `None`
+   extractor marks an item unavailable, and the rest are admitted while the
+   budget lasts. A too-expensive item is recorded and the walk *continues*, so a
+   cheaper lower-ranked item still fits.
 → **Debug stops here** and returns the full trace: scores with reasons, matched
    terms, the two classifier numbers, and the three absence buckets.
-5. **Build the prompt.** System prompt carries numbered grounding rules,
-   language, tone, horizon and the word cap. User prompt carries the name, the
-   question and the context block, each item rendered as a short natural phrase.
-   Prompt size is logged.
+5. **Build the prompt.** System: grounding rules, language, tone, horizon, word
+   cap. User: name, question, and the selected context as short phrases. Size is
+   logged.
 6-8. **Generate**, then **score confidence** from primary-source coverage capped
    by the classifier's decision reason, and derive `sourcesUsed` from what was
    actually selected.
 
-The engine never sees upstream failures. The aggregator returns availability,
-the planner ignores it entirely, and only the selector resolves relevance
-against reality. If the planner consumed availability, the same question would
-produce a different plan on different days and `/debug/personalization` would
-stop being reproducible.
+The planner never sees upstream failures — only the selector resolves relevance
+against reality. If it did, the same question would plan differently on
+different days and the debug endpoint would stop being reproducible.
 
 ---
 
@@ -325,15 +313,15 @@ stop being reproducible.
 | `horoscope` | degradable | same |
 | `panchang` | degradable | same |
 
-The user service is fatal because it plays two roles: context source (birth
-details) and personalization config source (language, tone, subscription).
-Without it there is no personalization left to do, and a generic reading dressed
-up as a personal one is worse than an error.
+`user` is fatal because it plays two roles — context source (birth details) and
+personalization config (language, tone, subscription). Without it there is no
+personalization left to do, and a generic reading dressed up as a personal one
+is worse than an error.
 
 ### Per-attempt policy
 
-`timeout → bounded retry with exponential backoff → cache`, implemented once in
-`UpstreamClient` (`app/services/base.py`) so a subclass is a URL and a shape
+`timeout → bounded retry with backoff → cache`, implemented once in
+`UpstreamClient` (`app/services/base.py`), so a subclass is a URL and a shape
 check.
 
 - **4xx is not retried** (`is_retryable` is `status >= 500`). A 404 will still
@@ -352,46 +340,40 @@ check.
 ### Partial failure inside a healthy service
 
 Kundli answers 200 but omits `houses.10`. The extractor returns `None` and the
-item is `unavailable` — decided by the same branch as a whole-service outage,
-because from the selector's position the two are the same fact: no value to
-render. There is no special case anywhere downstream. `user_103` in the mock
-fixtures exists precisely to exercise this.
+item is `unavailable` — the same branch as a whole-service outage, because from
+the selector's position both are one fact: no value to render. No special case
+downstream. `user_103` exists to exercise it.
 
 ### LLM failure
 
-`LLMError` is not swallowed. Generation is the one stage with no useful degraded
-mode — an answer assembled from a failed call is worse than an error, because
-the caller cannot tell a generated answer from a placeholder. It surfaces as a
-502.
+`LLMError` surfaces as a 502, not a fallback. Generation is the one stage with
+no useful degraded mode: the caller cannot tell a real answer from a placeholder
+one.
 
 ### Out of domain
 
-Short-circuits before the LLM entirely. Spending a model call to decline a
-question is money burnt on a decision already made.
+Short-circuits before the LLM. Spending a model call to decline is money burnt
+on a decision already made. Same for an empty context set.
 
 ---
 
 ## 6. Extension seams
 
-Four abstract base classes. Two are already load-bearing: `LLMClient` has three
-implementations behind a factory, `UpstreamClient` four behind the `CLIENT_TYPES`
-registry. `Classifier` and `ConfigSource` have one apiece — they are seams for
-what comes next (an embedding tier, a database-backed config), and a second
-implementation is what would tell us what the interface should really look
-like.
+Four ABCs. `LLMClient` (three implementations, behind a factory) and
+`UpstreamClient` (four, behind `CLIENT_TYPES`) are already load-bearing.
+`Classifier` and `ConfigSource` have one apiece — seams for what comes next.
 
 | Seam | File | What it lets you replace | Why it is here |
 |---|---|---|---|
-| `Classifier` | `app/classifier/base.py` | how intent is decided | The score-vector indirection in `rules.py` means an embedding model, a user-history prior or a click-through signal becomes one more contributor into `dict[Intent, float]`. The policy, the weights contract and every downstream consumer are untouched. |
-| `LLMClient` | `app/llm/base.py` | the provider | Everything upstream is provider-agnostic; only the three modules next to it know Anthropic or OpenAI exist. This is what lets the default demo run with no API key. |
-| `ConfigSource` | `app/config_loader.py` | where config comes from | Config is expected to move to a database or config service once non-engineers edit it. `read(name) -> dict` is the whole interface; a DB loader is a drop-in. |
-| `UpstreamClient` | `app/services/base.py` | one upstream service | Timeout, retry, backoff, caching and degradation live in the base class, so adding a service is a path, a shape check, one line in `CLIENT_TYPES`, and a policy block in `services.yaml`. |
+| `Classifier` | `app/classifier/base.py` | how intent is decided | An embedding model or user-history prior becomes one more contributor into `dict[Intent, float]`. Policy, weights contract and every downstream consumer untouched. |
+| `LLMClient` | `app/llm/base.py` | the provider | Only the three modules beside it know Anthropic or OpenAI exist — which is what lets the demo run with no API key. |
+| `ConfigSource` | `app/config_loader.py` | where config comes from | `read(name) -> dict` is the whole interface, so a database or config-service loader is a drop-in. |
+| `UpstreamClient` | `app/services/base.py` | one upstream service | Resilience lives in the base class, so a new service is a path, a shape check, one line in `CLIENT_TYPES` and a policy block. |
 
 Two more seams that are not classes:
 
-- **The Context Registry** (`app/engine/registry.py`) is the seam for new data.
-  Adding a context item is one entry — key, display name, service, extractor,
-  renderer, sample for costing — plus a reference from `personalization.yaml`.
-- **The score vector** in `app/classifier/rules.py` is the seam for new evidence.
-  It is deliberately not collapsed into "the winning term" even though exactly
-  one signal source feeds it today. That indirection is the deliverable.
+- **The Context Registry** (`app/engine/registry.py`) — new data. One entry plus
+  a reference from `personalization.yaml`.
+- **The score vector** (`app/classifier/rules.py`) — new evidence. Deliberately
+  not collapsed into "the winning term" despite one signal feeding it today.
+  That indirection is the deliverable.
