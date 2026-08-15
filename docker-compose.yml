@@ -1,0 +1,38 @@
+services:
+  mocks:
+    build: .
+    container_name: mynaksh-mocks
+    command: uvicorn mock_services.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  engine:
+    build: .
+    container_name: mynaksh-engine
+    # Single worker deliberately. The cache is in-memory and therefore
+    # per-process: with several workers, cache hits become a coin flip and
+    # DELETE /_cache would clear only whichever worker served that request.
+    # Multiple instances is a production concern, and it needs Redis first.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    ports:
+      - "8000:8000"
+    depends_on:
+      mocks:
+        condition: service_healthy
+    environment:
+      USER_SERVICE_URL: http://mocks:8001
+      KUNDLI_SERVICE_URL: http://mocks:8001
+      HOROSCOPE_SERVICE_URL: http://mocks:8001
+      PANCHANG_SERVICE_URL: http://mocks:8001
+      # No API key => the factory resolves to the mock LLM provider and says so
+      # loudly at startup, so a demo run is never ambiguously real-or-mocked.
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ENABLE_ADMIN_ENDPOINTS: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
