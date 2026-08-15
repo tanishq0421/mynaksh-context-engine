@@ -168,17 +168,21 @@ merge arithmetic made explicit.**
 
 ## With another day
 
-Embedding tier behind the existing `Classifier` interface (the seam is already
-there — one signal extractor) · a real tokenizer · a labelled set to tune the
-thresholds · golden-output tests on the prompt builder · streaming.
+- Embedding tier behind the existing `Classifier` interface — the seam is already there, it needs one signal extractor.
+- A real tokenizer, so the budget binds on actual tokens rather than a `len//4` estimate.
+- A labelled question set, to tune the thresholds against evidence instead of judgement.
+- Golden-output tests on the prompt builder, so a context-selection regression fails CI.
+- Streaming responses, since a 250-word answer has real perceived latency today.
 
 ## Left out for production
 
-Multiple instances behind a load balancer, which needs Redis first since the
-cache is per-process · circuit breaker (deliberate: retries + timeouts +
-stale-on-error already bound the damage) · auth, rate limiting, quotas · metrics
-and distributed tracing · prompt-injection defence · LLM cost controls · config
-hot reload (the `ConfigSource` seam exists; the DB loader does not).
+- Multiple instances behind a load balancer — needs Redis first, because the cache is per-process.
+- Circuit breaker — deliberate: retries, timeouts and stale-on-error already bound the damage at four upstreams.
+- Auth, rate limiting and per-user quotas.
+- Metrics and distributed tracing — there are structured JSON logs and nothing else.
+- Prompt-injection defence on the user's question.
+- LLM cost controls.
+- Config hot reload — the `ConfigSource` seam exists, the database loader does not.
 
 ---
 
