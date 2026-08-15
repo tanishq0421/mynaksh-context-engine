@@ -39,10 +39,20 @@ def resolve(
             # crash a live request over it.
             continue
 
-        # Rules judged it irrelevant. Score <= 0 covers both the hard zero and
-        # an item that a negative time-scope modifier pushed out of contention.
-        if scored.score <= 0 or item.key in excluded_keys:
+        # Exclusion means the rules actively judged this harmful to include —
+        # relationship context in a career prompt makes the model drift into it.
+        # That is an answer-quality decision, and it is not the same thing as an
+        # item that simply never scored for this intent. Reporting both here
+        # would make "we deliberately kept this out" indistinguishable from "it
+        # was never a candidate", so only rule exclusions land in `excluded`.
+        if item.key in excluded_keys:
             excluded.append(item.key)
+            continue
+
+        # Scored out of contention: irrelevant to this intent, or pushed under
+        # by a negative time-scope modifier. Not a decision worth reporting —
+        # the debug endpoint's ranked list already shows every item and score.
+        if scored.score <= 0:
             continue
 
         # An upstream let us down — either the whole service failed, or it
