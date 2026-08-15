@@ -121,14 +121,23 @@ confidence columns as a snapshot, not a guarantee.
 | What should I focus on for my health? | `health` | Health Horoscope, 6th House, Moon Sign, Panchang | HIGH |
 | What should I prioritize this week? | `general` | all 12 items | MEDIUM |
 | Can you summarize today's guidance? | `general` | all 12, Panchang first | MEDIUM |
-| Will I get a salary hike this year? | `career` **+** `finance` (0.38 / 0.62) | context from both | MEDIUM |
-| Should I switch companies? | `career` | — no `job`/`career` token appears | HIGH |
-| What does my Cancer moon sign mean? | `general` — **not** health | `cancer` is a sign as well as a disease | MEDIUM |
+| Will I get a salary hike this year? | `finance` **+** `career` (0.62 / 0.38) | Current Dasha, 10th House, Finance Horoscope, Career Horoscope | MEDIUM |
+| Should I switch companies? | `career` | Career Horoscope, 10th House, Current Dasha, Panchang | HIGH |
+| What does my Cancer moon sign mean? | `general` — **not** health | all 12 items | MEDIUM |
 | What is the capital of France? | out of domain | declined; LLM never called | LOW |
 
-The two `general` rows are correct, not failures: neither question is *about* a
-topic, so `general` maps to all available context. Confidence drops to MEDIUM
-because the intent was a fallback rather than a match.
+Four of those rows are worth a sentence:
+
+- **The two `general` rows are correct, not failures.** Neither question is
+  *about* a topic, so `general` maps to all available context. Confidence drops
+  to MEDIUM because the intent was a fallback rather than a match.
+- **"Salary hike" pulls the 10th House and the Career Horoscope** alongside the
+  finance items — that is the merge doing its job. Forcing a single intent would
+  have dropped half of it.
+- **"Switch companies" has no `job` or `career` token**; the paraphrase
+  vocabulary carries it.
+- **"Cancer moon" does not reach health** — `cancer` is a zodiac sign as well as
+  a disease, and zodiac names are barred from intent lexicons at boot.
 
 ---
 
