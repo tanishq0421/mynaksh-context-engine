@@ -127,12 +127,15 @@ async def gather_context(user_id: str, clients: dict[str, UpstreamClient]) -> Co
         bundle.failures[name] = result.error or "unknown error"
 
     logger.info(
-        "context fan-out for %s in %.0fms: ok=%s stale=%s failed=%s",
-        user_id,
-        (time.perf_counter() - started) * 1000,
-        sorted(bundle.data),
-        sorted(bundle.stale),
-        sorted(bundle.failures),
+        "context fan-out complete",
+        extra={
+            "event": "fan_out",
+            "user_id": user_id,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+            "ok": sorted(bundle.data),
+            "stale": sorted(bundle.stale),
+            "failed": sorted(bundle.failures),
+        },
     )
     return bundle
 
@@ -150,5 +153,13 @@ async def _timed_fetch(client: UpstreamClient, user_id: str) -> FetchResult:
         outcome = "stale"
     else:
         outcome = "ok"
-    logger.info("service=%s outcome=%s latency_ms=%.1f", client.name, outcome, elapsed_ms)
+    logger.info(
+        "upstream fetched",
+        extra={
+            "event": "upstream_fetch",
+            "service": client.name,
+            "outcome": outcome,
+            "latency_ms": round(elapsed_ms, 2),
+        },
+    )
     return result

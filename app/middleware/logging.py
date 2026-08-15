@@ -83,6 +83,12 @@ def configure_logging(level: str = "INFO") -> None:
         logger.handlers.clear()
         logger.propagate = True
 
+    # httpx logs every outbound call at INFO. We already emit one structured
+    # upstream_fetch record per service with outcome and latency, so leaving this
+    # on doubles the volume of the fan-out and buries our own lines in transport
+    # chatter that carries no field worth querying.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 class LatencyLoggingMiddleware(BaseHTTPMiddleware):
     """One structured record per request: method, path, status, duration."""

@@ -113,7 +113,10 @@ class UpstreamClient(ABC):
         except Exception as exc:  # noqa: BLE001 - failure is a return value here
             error = self._describe(exc)
             if self.policy.serve_stale_on_error and self.cache.has_stale(key):
-                logger.warning("%s failed (%s); serving stale cache", self.name, error)
+                logger.warning(
+                    "upstream failed; serving stale cache",
+                    extra={"event": "stale_served", "service": self.name, "reason": error},
+                )
                 return FetchResult(
                     service=self.name,
                     ok=True,
@@ -121,7 +124,10 @@ class UpstreamClient(ABC):
                     error=error,  # kept: a stale success still has a cause worth logging
                     stale=True,
                 )
-            logger.warning("%s failed with no usable cache: %s", self.name, error)
+            logger.warning(
+                "upstream failed with no usable cache",
+                extra={"event": "upstream_failed", "service": self.name, "reason": error},
+            )
             # Status travels with the failure so the API can distinguish "this
             # user does not exist" from "this service is down". Recovering that
             # by matching on message text would be a correctness decision made
@@ -132,7 +138,7 @@ class UpstreamClient(ABC):
             )
 
         if cached:
-            logger.debug("%s cache hit", self.name)
+            logger.debug("cache hit", extra={"event": "cache_hit", "service": self.name})
         return FetchResult(service=self.name, ok=True, data=value)
 
     # -- internals ---------------------------------------------------------

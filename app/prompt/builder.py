@@ -155,14 +155,16 @@ def _log_size(
     user_tokens = estimate_tokens(user)
 
     logger.info(
-        "prompt built: items=%d context_tokens~%d system_tokens~%d user_tokens~%d "
-        "total_prompt_tokens~%d (selector budget spend=%d, unavailable=%d, dropped_for_budget=%d)",
-        len(rendered),
-        context_tokens,
-        system_tokens,
-        user_tokens,
-        system_tokens + user_tokens,
-        resolved.tokens_used,
-        len(resolved.unavailable),
-        len(resolved.dropped_for_budget),
+        "prompt built",
+        extra={
+            "event": "prompt_built",
+            "items": len(rendered),
+            "context_tokens": context_tokens,
+            "system_tokens": system_tokens,
+            "user_tokens": user_tokens,
+            "total_prompt_tokens": system_tokens + user_tokens,
+            "selector_budget_spend": resolved.tokens_used,
+            "unavailable": len(resolved.unavailable),
+            "dropped_for_budget": len(resolved.dropped_for_budget),
+        },
     )

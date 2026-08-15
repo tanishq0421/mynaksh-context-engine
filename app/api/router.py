@@ -78,7 +78,17 @@ async def _run_pipeline(
 
     profile = bundle.payload("user") or {}
     plan = build_plan(classification, profile, state.compiled_rules, state.config.personalization)
-    resolved = resolve(plan, bundle, state.settings.context_token_budget)
+
+    if classification.in_domain:
+        resolved = resolve(plan, bundle, state.settings.context_token_budget)
+    else:
+        # Selecting context for a question we are about to decline would make
+        # /debug/personalization report sources that /personalize never uses.
+        # The debug endpoint is only worth having if it describes the live path.
+        resolved = ResolvedContext(
+            selected=[], values={}, excluded=[], unavailable=[],
+            dropped_for_budget=[], tokens_used=0,
+        )
 
     logger.info(
         "personalization planned",
