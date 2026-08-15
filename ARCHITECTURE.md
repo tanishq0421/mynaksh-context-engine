@@ -11,7 +11,127 @@ human-readable configuration into the numeric form the request path uses.
 
 ---
 
-## 1. Box diagram (ASCII)
+## 1. System diagram
+
+Boot and request in one view: config and the registry are compiled once at
+startup (dashed lines), and the request path consumes what they produced. They
+are drawn together because that dependency is the point — a dangling context key
+in YAML stops the process at boot rather than silently dropping a source at
+request time.
+
+Renders on GitHub and in any Mermaid-aware viewer. An ASCII version follows for
+terminals and plain-text viewers.
+
+```mermaid
+flowchart LR
+    Client(["Client"])
+
+    subgraph BOOT["BOOT — once, at startup, fail-fast"]
+        direction TB
+        Y1["config/intents.yaml<br/>lexicon · gate · thresholds"]
+        Y2["config/personalization.yaml<br/>tiers · modifiers · tone · length"]
+        Y3["config/services.yaml<br/>timeout · retries · TTL · criticality"]
+        REG["CONTEXT REGISTRY — in code<br/>key → extractor, renderer, cost"]
+        C1["inverted index"]
+        C2["item-keyed weights"]
+        C3["clients + policy"]
+        Y1 --> C1
+        Y2 --> C2
+        Y3 --> C3
+        REG -- "dangling key = refuse to start" --> C2
+    end
+
+    subgraph REQ["REQUEST PATH — FastAPI :8000"]
+        direction LR
+        MW["1 MIDDLEWARE<br/>request-id · JSON logs · latency"]
+
+        subgraph UNDERSTAND["understand"]
+            direction TB
+            CLS["2 CLASSIFIER<br/>gate → time scope → phrases<br/>→ terms → negation<br/>evidence vector → policy"]
+        end
+
+        subgraph GATHER["gather"]
+            direction TB
+            AGG["3 AGGREGATOR<br/>asyncio.gather<br/>latency = slowest, not sum"]
+            CACHE[("CACHE<br/>per-service TTL<br/>stale-on-error<br/>single-flight")]
+            AGG --- CACHE
+        end
+
+        subgraph SELECT["select"]
+            direction TB
+            PLAN["4a PLANNER — pure<br/>Σ intent_w × tier_w<br/>+ time modifier<br/>hard-zero if excluded"]
+            SEL["4b SELECTOR<br/>walk ranking, spend budget,<br/>backfill on failure"]
+            PLAN --> SEL
+        end
+
+        subgraph ANSWER["answer"]
+            direction TB
+            PB["5 PROMPT BUILDER<br/>selected only, via renderers"]
+            LLM["6 LLM PROVIDER<br/>swappable"]
+            CONF["7 CONFIDENCE<br/>coverage × certainty"]
+            PB --> LLM --> CONF
+        end
+
+        RESP["8 RESPONSE<br/>answer · confidence<br/>sourcesUsed"]
+    end
+
+    subgraph UP["UPSTREAMS — concurrent"]
+        direction TB
+        U1["user — REQUIRED"]
+        U2["kundli"]
+        U3["horoscope"]
+        U4["panchang"]
+    end
+
+    subgraph MOCKS["MOCKS :8001"]
+        direction TB
+        M["GET /users · /kundli<br/>/horoscope · /panchang"]
+        MF["/_faults<br/>error · timeout<br/>slow · malformed-200"]
+    end
+
+    subgraph PROV["PROVIDERS"]
+        direction TB
+        P1["anthropic"]
+        P2["openai"]
+        P3["mock — default"]
+    end
+
+    subgraph ABSENT["ABSENCE REASONS"]
+        direction TB
+        A1["excluded — rules said no"]
+        A2["unavailable — upstream failed"]
+        A3["droppedForBudget — did not fit"]
+    end
+
+    DBG["/debug/personalization<br/>STOPS HERE — no LLM call"]
+
+    Client -->|POST| MW --> CLS
+    CLS -->|"intent · weights Σ=1 · scope"| AGG
+    AGG --> UP
+    UP -->|"timeout → retry + backoff"| MOCKS
+    MOCKS -->|"bundle: data + failures + stale"| PLAN
+    CLS -.->|"plan inputs"| PLAN
+    SEL --> PB
+    SEL --> ABSENT
+    SEL --> DBG
+    LLM -.-> PROV
+    CONF --> RESP
+
+    C1 -.-> CLS
+    C2 -.-> PLAN
+    C3 -.-> UP
+
+    classDef stop fill:#fde,stroke:#c39,stroke-width:2px
+    class DBG stop
+```
+
+---
+
+## 2. The same thing in ASCII
+
+Identical content, for terminals and diff views with no Mermaid renderer. Split
+into boot and request here only because fixed-width text cannot hold the whole
+system at a readable width — the Mermaid version above shows them together.
 
 ### Boot path — runs once, at startup, and refuses to continue on a bad config
 
@@ -166,113 +286,6 @@ human-readable configuration into the numeric form the request path uses.
  ║  │    sourcesUsed is derived from selection, not from the model         │  ║
  ║  └──────────────────────────────────────────────────────────────────────┘  ║
  ╚════════════════════════════════════════════════════════════════════════════╝
-```
-
----
-
-## 2. Box diagram (Mermaid)
-
-```mermaid
-flowchart LR
-    Client(["Client"])
-
-    subgraph BOOT["BOOT — once, at startup, fail-fast"]
-        direction TB
-        Y1["config/intents.yaml<br/>lexicon · gate · thresholds"]
-        Y2["config/personalization.yaml<br/>tiers · modifiers · tone · length"]
-        Y3["config/services.yaml<br/>timeout · retries · TTL · criticality"]
-        REG["CONTEXT REGISTRY — in code<br/>key → extractor, renderer, cost"]
-        C1["inverted index"]
-        C2["item-keyed weights"]
-        C3["clients + policy"]
-        Y1 --> C1
-        Y2 --> C2
-        Y3 --> C3
-        REG -- "dangling key = refuse to start" --> C2
-    end
-
-    subgraph REQ["REQUEST PATH — FastAPI :8000"]
-        direction LR
-        MW["1 MIDDLEWARE<br/>request-id · JSON logs · latency"]
-
-        subgraph UNDERSTAND["understand"]
-            direction TB
-            CLS["2 CLASSIFIER<br/>gate → time scope → phrases<br/>→ terms → negation<br/>evidence vector → policy"]
-        end
-
-        subgraph GATHER["gather"]
-            direction TB
-            AGG["3 AGGREGATOR<br/>asyncio.gather<br/>latency = slowest, not sum"]
-            CACHE[("CACHE<br/>per-service TTL<br/>stale-on-error<br/>single-flight")]
-            AGG --- CACHE
-        end
-
-        subgraph SELECT["select"]
-            direction TB
-            PLAN["4a PLANNER — pure<br/>Σ intent_w × tier_w<br/>+ time modifier<br/>hard-zero if excluded"]
-            SEL["4b SELECTOR<br/>walk ranking, spend budget,<br/>backfill on failure"]
-            PLAN --> SEL
-        end
-
-        subgraph ANSWER["answer"]
-            direction TB
-            PB["5 PROMPT BUILDER<br/>selected only, via renderers"]
-            LLM["6 LLM PROVIDER<br/>swappable"]
-            CONF["7 CONFIDENCE<br/>coverage × certainty"]
-            PB --> LLM --> CONF
-        end
-
-        RESP["8 RESPONSE<br/>answer · confidence<br/>sourcesUsed"]
-    end
-
-    subgraph UP["UPSTREAMS — concurrent"]
-        direction TB
-        U1["user — REQUIRED"]
-        U2["kundli"]
-        U3["horoscope"]
-        U4["panchang"]
-    end
-
-    subgraph MOCKS["MOCKS :8001"]
-        direction TB
-        M["GET /users · /kundli<br/>/horoscope · /panchang"]
-        MF["/_faults<br/>error · timeout<br/>slow · malformed-200"]
-    end
-
-    subgraph PROV["PROVIDERS"]
-        direction TB
-        P1["anthropic"]
-        P2["openai"]
-        P3["mock — default"]
-    end
-
-    subgraph ABSENT["ABSENCE REASONS"]
-        direction TB
-        A1["excluded — rules said no"]
-        A2["unavailable — upstream failed"]
-        A3["droppedForBudget — did not fit"]
-    end
-
-    DBG["/debug/personalization<br/>STOPS HERE — no LLM call"]
-
-    Client -->|POST| MW --> CLS
-    CLS -->|"intent · weights Σ=1 · scope"| AGG
-    AGG --> UP
-    UP -->|"timeout → retry + backoff"| MOCKS
-    MOCKS -->|"bundle: data + failures + stale"| PLAN
-    CLS -.->|"plan inputs"| PLAN
-    SEL --> PB
-    SEL --> ABSENT
-    SEL --> DBG
-    LLM -.-> PROV
-    CONF --> RESP
-
-    C1 -.-> CLS
-    C2 -.-> PLAN
-    C3 -.-> UP
-
-    classDef stop fill:#fde,stroke:#c39,stroke-width:2px
-    class DBG stop
 ```
 
 ---
