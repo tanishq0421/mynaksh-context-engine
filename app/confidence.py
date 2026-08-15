@@ -87,11 +87,20 @@ def _primary_coverage(plan: PersonalizationPlan, resolved: ResolvedContext) -> f
 
     Absence is counted the same whether the item was unavailable (an upstream
     failed) or dropped for budget: the distinction matters for debugging, but
-    for confidence the only fact is that the model did not see it. Excluded
-    items never appear in `ranked`, so a rule-based exclusion cannot depress
-    confidence — that was a decision, not a loss.
+    for confidence the only fact is that the model did not see it.
+
+    Only positively-scored items are sampled. `ranked` holds every registry
+    item, including the ones a rule hard-zeroed and the ones that simply never
+    scored for this intent, sorted to the bottom. Those must not count as
+    missing coverage — an exclusion was a decision, not a loss — and under an
+    intent with fewer than three positive candidates they would otherwise be
+    pulled into the sample and depress confidence for doing their job.
     """
-    primary = [scored.key for scored in plan.ranked[:PRIMARY_SOURCE_SAMPLE]]
+    primary = [
+        scored.key
+        for scored in plan.ranked[:PRIMARY_SOURCE_SAMPLE]
+        if scored.score > 0
+    ]
     if not primary:
         # Nothing was even a candidate — there is no chart data to be confident
         # about, whatever the classifier thought.

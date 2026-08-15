@@ -105,6 +105,40 @@ def test_degenerate_input_is_safe(classifier, question):
     assert result.primary is Intent.GENERAL
 
 
+@pytest.mark.parametrize(
+    "question,phrase,intent",
+    [
+        ("I am feeling unwell lately", "feel* unwell", Intent.HEALTH),
+        ("Should I be changing my job this year", "chang* my job", Intent.CAREER),
+        ("Should I switch companies", "switch* compan*", Intent.CAREER),
+        ("When will I get married", "get* married", Intent.RELATIONSHIP),
+    ],
+)
+def test_phrase_stems_match_inflections(classifier, question, phrase, intent):
+    """Regression: phrase keys were tokenized as a whole, which stripped the `*`
+    as punctuation. `chang* my job` compiled to the literal ("chang","my","job")
+    and could only match "chang my job".
+
+    Every stem-marked phrase was silently dead. The ones that looked like they
+    worked were carried by a bare term scoring separately, which is why the
+    defect survived the sample questions — `feel* unwell` has no such backup and
+    sent "I am feeling unwell" to general.
+    """
+    result = classifier.classify(question)
+    assert result.primary is intent
+    matched = [t for s in result.ranked for t in s.matched_terms]
+    assert phrase in matched, f"phrase never fired; matched {matched}"
+
+
+def test_phrase_consumes_its_tokens(classifier):
+    """Longest-match-wins with consumption: `love life` must not also score a
+    bare `life`, or an overlapping entry double-counts."""
+    result = classifier.classify("My love life is a mess")
+    matched = [t for s in result.ranked for t in s.matched_terms]
+    assert "love life" in matched
+    assert "life" not in matched
+
+
 def test_trace_is_populated_for_debug_endpoint(classifier):
     """The matched-term trace is what /debug/personalization shows and what
     would bootstrap a labelled dataset in production."""

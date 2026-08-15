@@ -13,7 +13,7 @@ what a matcher needs to be exercised in isolation.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 
 from app.classifier.tokenizer import Token, tokenize_terms
@@ -105,6 +105,35 @@ class LexiconIndex:
     min_stem_len: int
 
 
+def compile_phrase_key(raw: str) -> tuple[str, ...]:
+    """Normalize a phrase, preserving a trailing `*` on any token.
+
+    Tokenizing the whole phrase at once would strip the marker as punctuation,
+    so `chang* my job` compiled to the literal ("chang", "my", "job") and could
+    only ever match "chang my job". Every stem-marked phrase in the config was
+    silently dead — the ones that appeared to work were being carried by a bare
+    term scoring separately.
+    """
+    out: list[str] = []
+    for word in raw.split():
+        stem = word.endswith(_STEM_MARKER)
+        normalized = tokenize_terms(word.rstrip(_STEM_MARKER))
+        if not normalized:
+            continue
+        out.extend(normalized[:-1])
+        out.append(normalized[-1] + (_STEM_MARKER if stem else ""))
+    return tuple(out)
+
+
+def phrase_key_matches(key: tuple[str, ...], window: tuple[str, ...]) -> bool:
+    if len(key) != len(window):
+        return False
+    return all(
+        token.startswith(pattern[:-1]) if pattern.endswith(_STEM_MARKER) else token == pattern
+        for pattern, token in zip(key, window)
+    )
+
+
 def _merge(target: dict[Intent, float], intent: Intent, weight: float) -> None:
     # A term repeated under one intent is a config duplicate, not two votes.
     target[intent] = max(target.get(intent, 0.0), weight)
@@ -117,7 +146,7 @@ def compile_lexicons(intents: Mapping[Intent, IntentLexicon]) -> LexiconIndex:
 
     for intent, lexicon in intents.items():
         for phrase in lexicon.phrases:
-            key = tokenize_terms(phrase.match)
+            key = compile_phrase_key(phrase.match)
             if not key:
                 raise ValueError(f"phrase {phrase.match!r} under {intent.value} normalizes to nothing")
             _merge(phrases.setdefault(key, {}), intent, phrase.weight)
@@ -178,12 +207,17 @@ def scan_longest(
     table: Mapping[tuple[str, ...], object],
     max_len: int,
     blocked: frozenset[int],
+    resolve: "Callable[[tuple[str, ...]], tuple[str, ...] | None] | None" = None,
 ) -> list[tuple[int, int, tuple[str, ...]]]:
     """Leftmost-longest non-overlapping scan. Shared by phrases and time scope.
 
     Longest-match-wins with consumption is the only policy under which
     overlapping entries cannot double-fire: once "love life" is claimed, bare
     "life" has no token left to score against.
+
+    `resolve` turns a window of tokens into the table key it matched, or None.
+    Time scope uses exact identity; phrases override it so a stem-marked token
+    (`chang* my job`) matches an inflection the literal key never would.
     """
     hits: list[tuple[int, int, tuple[str, ...]]] = []
     taken: set[int] = set()
@@ -197,8 +231,11 @@ def scan_longest(
             span = range(i, i + length)
             if any(j in blocked or j in taken for j in span):
                 continue
-            key = texts[i : i + length]
-            if key in table:
+            window = texts[i : i + length]
+            key = window if window in table else None
+            if key is None and resolve is not None:
+                key = resolve(window)
+            if key is not None:
                 hits.append((i, i + length, key))
                 taken.update(span)
                 i += length
@@ -247,7 +284,14 @@ def phrase_signal(
         return SignalOutput()
 
     texts = tuple(token.text for token in tokens)
-    hits = scan_longest(texts, index.phrases, index.max_phrase_len, consumed)
+
+    def resolve(window: tuple[str, ...]) -> tuple[str, ...] | None:
+        for key in index.phrases:
+            if phrase_key_matches(key, window):
+                return key
+        return None
+
+    hits = scan_longest(texts, index.phrases, index.max_phrase_len, consumed, resolve)
     matches = tuple(
         Match(
             term=" ".join(key),

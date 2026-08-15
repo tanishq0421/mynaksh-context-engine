@@ -112,8 +112,8 @@ human-readable configuration into the numeric form the request path uses.
  ║  │ 4  PERSONALIZATION ENGINE                                            │  ║
  ║  │                                                                      │  ║
  ║  │  ┌────────────────────────────┐   PLANNER — phase 1, pure            │  ║
- ║  │  │ score(item) =             │   sees intent + profile + config      │  ║
- ║  │  │   Σ intent_w × tier_w     │   and NOTHING about what resolved.    │  ║
+ ║  │  │ score(item) =              │   sees intent + profile + config     │  ║
+ ║  │  │   Σ intent_w × tier_w      │   and NOTHING about what resolved.   │  ║
  ║  │  │   + time_scope_modifier    │   Also decides language, tone,       │  ║
  ║  │  │   then hard-zero if        │   maxWords.                          │  ║
  ║  │  │   excluded (applied last)  │                                      │  ║
@@ -121,7 +121,7 @@ human-readable configuration into the numeric form the request path uses.
  ║  │                ▼ ranked candidates, descending                       │  ║
  ║  │  ┌────────────────────────────┐   SELECTOR — phase 2                 │  ║
  ║  │  │ walk the ranking, spend a  │   resolves the plan against what     │  ║
- ║  │  │ token budget, backfill    │   actually arrived. Backfill is just  │  ║
+ ║  │  │ token budget, backfill     │   actually arrived. Backfill is just │  ║
  ║  │  │ falls out for free         │   "keep walking".                    │  ║
  ║  │  └─────────────┬──────────────┘                                      │  ║
  ║  └────────────────┼─────────────────────────────────────────────────────┘  ║

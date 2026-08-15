@@ -304,32 +304,32 @@ extension seams are in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
      │  POST /personalize   ·   POST /debug/personalization
      ▼
  ┌──────────────────────────────────────────────────────────────────────────┐
- │ 1 MIDDLEWARE       request-id ▸ JSON logging ▸ latency                    │
+ │ 1 MIDDLEWARE       request-id ▸ JSON logging ▸ latency                   │
  ├──────────────────────────────────────────────────────────────────────────┤
- │ 2 INTENT CLASSIFIER   domain gate ▸ time-scope ▸ phrases ▸ terms ▸ neg.   │
- │                       evidence vector {intent: float} ▸ decision policy   │
+ │ 2 INTENT CLASSIFIER   domain gate ▸ time-scope ▸ phrases ▸ terms ▸ neg.  │
+ │                       evidence vector {intent: float} ▸ decision policy  │
  ├──────────────────────────────────────────────────────────────────────────┤
- │ 3 CONTEXT AGGREGATOR      asyncio.gather — latency = slowest, not sum     │
+ │ 3 CONTEXT AGGREGATOR      asyncio.gather — latency = slowest, not sum    │
  │     ┌──────┐   ┌────────┐   ┌───────────┐   ┌──────────┐                 │
- │     │ user │   │ kundli │   │ horoscope │   │ panchang │  all four at once│
+ │     │ user │   │ kundli │   │ horoscope │   │ panchang │ all four at once│
  │     └──┬───┘   └───┬────┘   └─────┬─────┘   └────┬─────┘                 │
  │        └───────────┴──────┬───────┴──────────────┘                       │
  │            ┌──────────────▼───────────────────────────────┐              │
- │            │ CACHE  per-service TTL · stale-on-error ·     │──▶ :8001     │
+ │            │ CACHE  per-service TTL · stale-on-error ·    │──▶ :8001     │
  │            │        single-flight                         │              │
  │            └──────────────────────────────────────────────┘              │
  ├──────────────────────────────────────────────────────────────────────────┤
  │ 4 PERSONALIZATION ENGINE                                                 │
- │     PLANNER  (pure — config only)  ▸  SELECTOR  (resolves vs. reality)    │
+ │     PLANNER  (pure — config only)  ▸  SELECTOR  (resolves vs. reality)   │
  │        ├─ selected                                                       │
  │        ├─ excluded          ─┐                                           │
- │        ├─ unavailable        ├─ three distinct absence reasons            │
+ │        ├─ unavailable        ├─ three distinct absence reasons           │
  │        └─ droppedForBudget  ─┘                                           │
  │══════════ /debug/personalization RETURNS HERE — never calls the LLM ═════│
- │ 5 PROMPT BUILDER      selected items only, via renderers, never raw JSON  │
- │ 6 LLM PROVIDER        anthropic │ openai │ mock          (swappable)      │
- │ 7 CONFIDENCE SCORER   coverage × intent certainty, deterministic          │
- │ 8 RESPONSE            {answer, confidence, sourcesUsed}                   │
+ │ 5 PROMPT BUILDER      selected items only, via renderers, never raw JSON │
+ │ 6 LLM PROVIDER        anthropic │ openai │ mock          (swappable)     │
+ │ 7 CONFIDENCE SCORER   coverage × intent certainty, deterministic         │
+ │ 8 RESPONSE            {answer, confidence, sourcesUsed}                  │
  └──────────────────────────────────────────────────────────────────────────┘
      ▲                                                    ▲
      │ boot: config/*.yaml compiled to inverted index      │ boot: registry
@@ -785,16 +785,28 @@ a learned classifier without a separate annotation project.
 - **Out-of-scope questions get a graceful refusal at LOW confidence**, not an
   answer, and never cost an LLM call.
 - **Multi-intent questions are merged**, not forced into a single winner.
+  "Will I get a salary hike?" is genuinely career *and* finance; picking one
+  discards half the relevant context, and picking it by whichever hand-set
+  weight happens to be larger is a coin flip dressed as a decision. Merging
+  makes the ambiguity visible in `intentWeights` and lets confidence drop to
+  reflect it.
 - **Time scope is a second, orthogonal dimension** beyond the spec's intent-only
-  mapping.
+  mapping. Intent alone cannot distinguish "how is my career today" from "how is
+  my career this year", yet they want different sources: today's panchang is
+  decisive for one and noise for the other, while the dasha is the reverse.
+  Folding the horizon into the intent table would mean an intent per
+  intent-horizon pair, which multiplies the config instead of extending it.
 - **No API key is assumed present.** The mock provider is the default and the app
   logs loudly at startup which provider it resolved, so a demo run is never
   ambiguously real-or-mocked.
-- **Single instance, single worker.** The cache is per-process.
-- **Weights and thresholds are hand-set, not learned.** There is no feedback loop
-  to tune them.
-- **No stemmer and no spell correction.** Typos miss. Fuzzy matching is an
-  additive signal later.
+- **Single instance, single worker.** The cache is per-process, so a second
+  worker would make cache hits a coin flip and `DELETE /_cache` would clear only
+  whichever worker served that request. Sidestepped rather than solved — see
+  *Production concerns left out*.
+
+Hand-set weights, the absent stemmer and the token-cost estimate are deliberate
+simplifications rather than assumptions; each is stated with its cost under
+*What was intentionally simplified*.
 
 ---
 
@@ -808,7 +820,7 @@ a learned classifier without a separate annotation project.
 | Config in tiers, compiled to weights at boot | Numeric weights in the file a domain expert edits | An astrologer reviews categories, not decimals. The numbers live in one block. |
 | Registry in code, YAML references keys | Registry in YAML | Every entry needs an extractor and a renderer, which are functions. Logic in YAML builds a bad programming language with no type checker and no debugger. |
 | Boot-time validation, fail-fast | Tolerate and log | A dangling key does not raise at runtime, it silently drops a source. Better a stack trace with a filename at deploy than a subtly wrong reading at 3am. |
-| Rules-only classification | — | See the two rejected LLM options below. |
+| Rules-only classification | Embedding or LLM classifier | A deterministic path has to exist anyway as the fallback for timeouts and rate limits, so the rules classifier gets built either way — the only question is whether a second tier earns its cost on top. Measured: rules handle all five sample questions and the paraphrase case at zero latency; embeddings scored 16/20 and added a model download. Cut on the numbers, with the seam left in place. |
 | Deterministic confidence | LLM self-reported confidence | Models are badly calibrated at self-reporting and will rate a hallucination 9/10. This is also reproducible without a network call, which is what lets the debug endpoint exist. |
 | `sourcesUsed` from selection | Ask the model to cite | Asking a model to cite invites invented citations. What we sent is a fact we own. |
 | Language from profile | Language from the question | Consistent and honours an explicit setting. Question-language needs detection (a new failure mode) and can flip-flop between turns. |
@@ -865,17 +877,43 @@ oversight.
 - **No embedding / semantic tier.** Classification is rules-only. The *seam* is
   preserved and is the whole point (see *Intent classification*), and the
   decision was made on measurements, not assertion.
-- **Multilingual input cut entirely.** English only.
-- **No stemmer, no spell correction, no fuzzy matching.**
-- **Token costs are a character-count estimate**, not a real tokenizer.
-- **Item token costs are fixed at import time** from a representative sample
-  rather than measured per request, so that phase-1 planning stays pure and
-  reproducible.
-- **Weights and thresholds hand-set**, with no feedback loop.
+- **Multilingual input cut entirely — English only.** Not a scoping shrug: the
+  embedding simulation showed romanized Hinglish fails *confidently*, matching
+  sentence frame rather than meaning (0.71–0.87 similarity on the wrong intent).
+  Shipping it half-working would be worse than not shipping it, because a
+  confident misclassification silently selects the wrong context. **Cost:** a
+  Hindi or Hinglish question is treated as noise and falls through to `general`.
+- **No stemmer, no spell correction, no fuzzy matching.** A stemmer is a
+  dependency with its own failure modes (over-stemming merges unrelated terms),
+  and the `*` prefix marker in config covers the inflections that actually occur
+  for ~15 terms. **Cost:** typos miss entirely — "chnage my job" scores nothing
+  and lands in `general`. Fuzzy matching is an additive signal on the existing
+  score vector when it is worth the false-positive risk.
+- **Token costs are a `len // 4` character estimate**, not a real tokenizer.
+  A real one means either a provider dependency at import time or shipping a
+  vocabulary file, for a number that only orders a ranking. **Cost:** roughly
+  ±25% error, so the budget binds a little early or late. It never affects
+  *which* items rank above which, only where the cut falls.
+- **Item token costs are computed once at import** from a representative sample
+  rather than measured per request. This is what keeps phase-1 planning pure:
+  if cost depended on the actual payload, the same question would produce
+  different rankings on different days and the debug endpoint would stop being
+  reproducible. **Cost:** an unusually long horoscope string is under-counted.
+- **Weights and thresholds are hand-set with no feedback loop.** There is no
+  labelled data to fit them to, and inventing a dataset to justify a number is
+  worse than admitting the number is provisional. **Cost:** stated plainly in
+  *Known limitations* — they are defensible, not tuned. The logged classification
+  traces are the mechanism that would build the dataset in production.
 - **Single-turn LLM interface** — no streaming, no tools, no chat history.
-  Keeping it that narrow is why the mock provider is a faithful stand-in rather
-  than an approximation.
-- **Tests are focused, not broad.**
+  The endpoint is request/response, so anything else is speculative surface.
+  Keeping it this narrow is also why the mock provider is a faithful stand-in
+  rather than an approximation. **Cost:** a 250-word answer has real perceived
+  latency with no first-token feedback, and follow-up questions carry no memory
+  of the previous turn.
+- **Tests are focused, not broad.** Coverage percentage measures lines executed,
+  not behaviours protected; the two suites here target the places where a bug
+  survives review. **Cost:** the prompt builder and the LLM factory have no
+  golden-output tests, so a regression in prompt composition would pass CI.
 
 ---
 
