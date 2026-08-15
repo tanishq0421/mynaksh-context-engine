@@ -122,7 +122,14 @@ class UpstreamClient(ABC):
                     stale=True,
                 )
             logger.warning("%s failed with no usable cache: %s", self.name, error)
-            return FetchResult(service=self.name, ok=False, error=error)
+            # Status travels with the failure so the API can distinguish "this
+            # user does not exist" from "this service is down". Recovering that
+            # by matching on message text would be a correctness decision made
+            # on a string.
+            status = exc.status_code if isinstance(exc, UpstreamStatusError) else None
+            return FetchResult(
+                service=self.name, ok=False, error=error, status_code=status
+            )
 
         if cached:
             logger.debug("%s cache hit", self.name)

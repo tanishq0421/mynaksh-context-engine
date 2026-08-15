@@ -106,6 +106,10 @@ class FetchResult:
     data: Any | None = None
     error: str | None = None
     stale: bool = False  # served from expired cache because the upstream failed
+    # Carried so the API can tell "this user does not exist" (404) apart from
+    # "this service is down" (503). Without it the caller would have to pattern
+    # match on message text to make a correctness-relevant distinction.
+    status_code: int | None = None
 
 
 @dataclass

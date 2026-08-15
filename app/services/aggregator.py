@@ -49,10 +49,13 @@ class CriticalServiceError(RuntimeError):
     to a 503 without pattern-matching on message text.
     """
 
-    def __init__(self, service: str, reason: str) -> None:
+    def __init__(self, service: str, reason: str, status_code: int | None = None) -> None:
         super().__init__(f"required service '{service}' unavailable: {reason}")
         self.service = service
         self.reason = reason
+        # An upstream 404 means the user does not exist, which is a 404 to our
+        # caller — not a 503. Same failure path, different answer.
+        self.status_code = status_code
 
 
 def build_clients(
@@ -118,7 +121,9 @@ async def gather_context(user_id: str, clients: dict[str, UpstreamClient]) -> Co
             continue
 
         if policy.criticality is Criticality.REQUIRED:
-            raise CriticalServiceError(name, result.error or "unknown error")
+            raise CriticalServiceError(
+                name, result.error or "unknown error", result.status_code
+            )
         bundle.failures[name] = result.error or "unknown error"
 
     logger.info(
