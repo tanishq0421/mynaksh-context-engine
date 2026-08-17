@@ -7,3 +7,6 @@ venv/
 .ruff_cache/
 *.egg-info/
 .DS_Store
+
+# Interview prep — personal notes, never published.
+INTERVIEW.md
